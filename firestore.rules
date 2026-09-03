@@ -1,0 +1,25 @@
+rules_version = '2';
+// ============================================================
+// Règles Firestore — POINTAGE RLB
+//
+// ⚠ MODÈLE ACTUEL : l'app n'utilise pas Firebase Auth. Le contrôle
+// d'accès (PIN salarié / PIN manager) est applicatif, côté client.
+// Ces règles laissent donc lecture/écriture ouvertes au projet.
+//
+// C'est acceptable pour un usage interne sur tablette de confiance,
+// PAS pour une exposition publique. Deux niveaux de durcissement
+// possibles quand tu voudras :
+//   1. Restreindre par App Check (empêche l'usage hors de ton app).
+//   2. Passer à Firebase Auth (compte anonyme tablette + custom claims
+//      manager) et vérifier request.auth ci-dessous.
+//
+// Tant que tu restes en interne, garde au minimum une date d'expiration
+// courte OU App Check activé.
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
