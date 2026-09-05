@@ -8,28 +8,37 @@ import { leaveLabel } from "./ui";
 
 const now = new Date();
 
-export default function Recap({ employees }) {
+export default function Recap({ employees, sites = [], allowedSiteIds = null }) {
   const [empId, setEmpId] = useState("all");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [recaps, setRecaps] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const scoped = employees.filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId));
 
   async function generate() {
     setLoading(true);
-    const settings = await getSettings();
-    const { start, end } = monthBounds(year, month);
-    const targets = empId === "all"
-      ? employees.filter((e) => e.active !== false)
-      : employees.filter((e) => e.id === empId);
-    const out = [];
-    for (const emp of targets) {
-      const days = await getDaysRange(emp.id, start, end);
-      const leaves = await getLeaves(emp.id, start, end);
-      out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month) });
+    setError(null);
+    try {
+      const settings = await getSettings();
+      const { start, end } = monthBounds(year, month);
+      const targets = empId === "all"
+        ? scoped.filter((e) => e.active !== false)
+        : scoped.filter((e) => e.id === empId);
+      const out = [];
+      for (const emp of targets) {
+        const days = await getDaysRange(emp.id, start, end);
+        const leaves = await getLeaves(emp.id, start, end);
+        out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month) });
+      }
+      setRecaps(out);
+    } catch (e) {
+      setError("Erreur lors de la génération : " + (e?.message || e));
+    } finally {
+      setLoading(false);
     }
-    setRecaps(out);
-    setLoading(false);
   }
 
   useEffect(() => { setRecaps(null); }, [empId, year, month]);
@@ -40,7 +49,7 @@ export default function Recap({ employees }) {
         <label style={{ fontSize: 13, color: "var(--text-dim)" }}>Salarié<br />
           <select style={{ ...inp, marginTop: 5 }} value={empId} onChange={(e) => setEmpId(e.target.value)}>
             <option value="all">Tous les salariés actifs</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{e.displayName}</option>)}
+            {scoped.map((e) => <option key={e.id} value={e.id}>{e.displayName}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 13, color: "var(--text-dim)" }}>Mois<br />
@@ -56,6 +65,13 @@ export default function Recap({ employees }) {
         <button onClick={generate} style={btnGhost}>{loading ? "…" : "Générer"}</button>
         {recaps && <button onClick={() => window.print()} style={btnPrimary}>Imprimer / PDF</button>}
       </div>
+
+      {error && (
+        <div className="no-print" style={{ padding: "11px 14px", borderRadius: 10, marginBottom: 16,
+          background: "color-mix(in srgb, var(--red) 12%, var(--ink-2))", border: "1px solid var(--red)", color: "var(--text)", fontSize: 14 }}>
+          {error}
+        </div>
+      )}
 
       {recaps && recaps.map(({ emp, weeks, totals }) => (
         <RecapSheet key={emp.id} emp={emp} weeks={weeks} totals={totals} year={year} month={month} />

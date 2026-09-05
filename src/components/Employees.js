@@ -6,21 +6,26 @@ import { minutesToHHhMM, FULL_TIME_WEEKLY_MINUTES } from "../lib/timeLogic";
 
 const DAYS = [["Lun", 1], ["Mar", 2], ["Mer", 3], ["Jeu", 4], ["Ven", 5], ["Sam", 6], ["Dim", 7]];
 
-const blank = () => ({
-  firstName: "", lastName: "", displayName: "",
+const blank = (siteId) => ({
+  firstName: "", lastName: "", displayName: "", siteId: siteId || "",
   contractType: "full", weeklyContractMinutes: FULL_TIME_WEEKLY_MINUTES,
   workDays: [1, 2, 3, 4, 5], plannedStart: "09:00", plannedEnd: "17:00",
   active: true, newPin: "",
 });
 
-export default function Employees({ employees }) {
+export default function Employees({ employees, sites = [], allowedSiteIds = null }) {
   const [edit, setEdit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
+  const [filterSite, setFilterSite] = useState("all");
+
+  // Magasins que ce manager peut voir/gérer
+  const visibleSites = allowedSiteIds ? sites.filter((s) => allowedSiteIds.includes(s.id)) : sites;
 
   async function save() {
     setErr(null);
     if (!edit.firstName || !edit.lastName) { setErr("Nom et prénom requis"); return; }
+    if (!edit.siteId) { setErr("Magasin requis"); return; }
     if (edit.newPin && !isValidPin(edit.newPin)) { setErr("Le PIN doit faire 4 chiffres"); return; }
     if (!edit.id && !edit.newPin) { setErr("Un PIN à 4 chiffres est requis à la création"); return; }
     setSaving(true);
@@ -41,33 +46,53 @@ export default function Employees({ employees }) {
     await deleteEmployee(e.id);
   }
 
+  const siteName = (id) => sites.find((s) => s.id === id)?.name || "—";
+
+  const shown = employees
+    .filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId))
+    .filter((e) => filterSite === "all" || e.siteId === filterSite);
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <h2 style={{ fontSize: 20, fontWeight: 600 }}>Salariés</h2>
-        <button onClick={() => setEdit(blank())} style={btnPrimary}>+ Nouveau salarié</button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <select style={{ ...inp, width: "auto" }} value={filterSite} onChange={(e) => setFilterSite(e.target.value)}>
+            <option value="all">Tous mes magasins</option>
+            {visibleSites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <button onClick={() => setEdit(blank(visibleSites.length === 1 ? visibleSites[0].id : (filterSite !== "all" ? filterSite : "")))} style={btnPrimary}>+ Nouveau salarié</button>
+        </div>
       </div>
 
       <div style={{ display: "grid", gap: 8 }}>
-        {employees.map((e) => (
+        {shown.map((e) => (
           <div key={e.id} style={row}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600 }}>{e.displayName}
+                <span style={{ color: "var(--brass)", fontSize: 13, fontWeight: 500 }}> · {siteName(e.siteId)}</span>
                 {e.active === false && <span style={{ color: "var(--text-faint)", fontSize: 13, fontWeight: 400 }}> · inactif</span>}
               </div>
               <div style={{ fontSize: 13, color: "var(--text-dim)" }}>
-                {e.contractType === "full" ? "Temps plein" : "Temps partiel"} · {minutesToHHhMM(e.weeklyContractMinutes)}/sem · {e.plannedStart}–{e.plannedEnd}
+                {e.contractType === "full" ? "Temps plein" : "Temps partiel"} · {minutesToHHhMM(e.weeklyContractMinutes)}/sem · prévu {e.plannedStart}–{e.plannedEnd}
               </div>
             </div>
             <button onClick={() => setEdit({ ...e, newPin: "" })} style={btnGhost}>Modifier</button>
             <button onClick={() => remove(e)} style={{ ...btnGhost, color: "var(--red)" }}>Suppr.</button>
           </div>
         ))}
+        {shown.length === 0 && <p style={{ color: "var(--text-faint)" }}>Aucun salarié pour ce filtre.</p>}
       </div>
 
       {edit && (
         <Modal onClose={() => setEdit(null)} title={edit.id ? "Modifier le salarié" : "Nouveau salarié"}>
           <div style={{ display: "grid", gap: 14 }}>
+            <Field label="Magasin" hint="Le retard se calcule sur l'horaire prévu ci-dessous">
+              <select style={inp} value={edit.siteId} onChange={(ev) => setEdit({ ...edit, siteId: ev.target.value })}>
+                <option value="">— Choisir —</option>
+                {visibleSites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Field label="Prénom"><input style={inp} value={edit.firstName} onChange={(ev) => setEdit({ ...edit, firstName: ev.target.value })} /></Field>
               <Field label="Nom"><input style={inp} value={edit.lastName} onChange={(ev) => setEdit({ ...edit, lastName: ev.target.value })} /></Field>

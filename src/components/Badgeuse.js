@@ -6,6 +6,7 @@ import { addPunch, watchDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+const TABLET_SITE_KEY = "pointage_tablet_site";
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
@@ -28,7 +29,6 @@ function LiveClock() {
   );
 }
 
-// Détermine la prochaine action logique selon l'état du jour
 function nextActions(day) {
   const has = (k) => day && day[k];
   if (!has("arrival")) return [["arrival", "Arrivée", "var(--green)"]];
@@ -38,14 +38,21 @@ function nextActions(day) {
   ];
   if (!has("breakIn")) return [["breakIn", "Retour pause", "var(--green)"]];
   if (!has("departure")) return [["departure", "Départ", "var(--red)"]];
-  return []; // journée complète
+  return [];
 }
 
-export default function Badgeuse({ employees }) {
+export default function Badgeuse({ employees, sites }) {
+  const [tabletSite, setTabletSite] = useState(null);
+  const [ready, setReady] = useState(false);
   const [days, setDays] = useState({});
   const [selected, setSelected] = useState(null);
   const [pinError, setPinError] = useState(null);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    setTabletSite(localStorage.getItem(TABLET_SITE_KEY));
+    setReady(true);
+  }, []);
 
   useEffect(() => {
     const unsub = watchDay(todayStr(), (list) => {
@@ -56,6 +63,11 @@ export default function Badgeuse({ employees }) {
     return () => unsub();
   }, []);
 
+  function chooseSite(id) {
+    localStorage.setItem(TABLET_SITE_KEY, id);
+    setTabletSite(id);
+  }
+
   async function onPin(pin) {
     const ok = await verifyEmployeePin(pin, selected.pin);
     if (!ok) { setPinError("Code incorrect"); return; }
@@ -64,17 +76,56 @@ export default function Badgeuse({ employees }) {
   }
 
   async function doPunch(type, label) {
-    await addPunch(selected.id, todayStr(), type, "badge");
-    setToast(`${label} enregistré — ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
+    try {
+      await addPunch(selected.id, todayStr(), type, "badge");
+      setToast(`${label} enregistré — ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
+    } catch (e) {
+      setToast("Erreur : " + e.message);
+    }
     setSelected(null);
     setTimeout(() => setToast(null), 3500);
   }
 
-  const active = employees.filter((e) => e.active !== false);
+  if (!ready) return null;
+
+  // Choix du magasin de la tablette (une fois)
+  if (!tabletSite || !sites.find((s) => s.id === tabletSite)) {
+    return (
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+        <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Magasin de cette tablette</h1>
+          <p style={{ color: "var(--text-dim)", marginBottom: 24 }}>
+            Choisissez le magasin. Ce réglage reste mémorisé sur cet appareil.
+          </p>
+          {sites.length === 0 ? (
+            <p style={{ color: "var(--text-faint)" }}>
+              Aucun magasin créé. Un responsable doit d'abord en créer un dans le mode Manager.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {sites.map((s) => (
+                <button key={s.id} onClick={() => chooseSite(s.id)} style={{
+                  padding: "16px", borderRadius: 12, fontSize: 18, fontWeight: 600,
+                  background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)",
+                }}>{s.name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const siteName = sites.find((s) => s.id === tabletSite)?.name || "";
+  const active = employees.filter((e) => e.active !== false && (e.siteId || "main") === tabletSite);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "28px 20px 40px" }}>
-      <div style={{ padding: "10px 0 26px" }}><LiveClock /></div>
+      <div style={{ textAlign: "center", color: "var(--text-faint)", fontSize: 13, marginBottom: 4 }}>
+        {siteName} · <button onClick={() => { localStorage.removeItem(TABLET_SITE_KEY); setTabletSite(null); }}
+          style={{ color: "var(--text-faint)", textDecoration: "underline", fontSize: 13 }}>changer</button>
+      </div>
+      <div style={{ padding: "6px 0 26px" }}><LiveClock /></div>
 
       {toast && (
         <div style={{
@@ -116,7 +167,7 @@ export default function Badgeuse({ employees }) {
           </div>
           {active.length === 0 && (
             <p style={{ textAlign: "center", color: "var(--text-faint)", marginTop: 30 }}>
-              Aucun salarié. Ajoutez-en dans le mode Manager.
+              Aucun salarié pour ce magasin. Ajoutez-en dans le mode Manager.
             </p>
           )}
         </>
@@ -124,23 +175,13 @@ export default function Badgeuse({ employees }) {
 
       {selected && !selected.unlocked && (
         <div style={{ marginTop: 20 }}>
-          <PinPad
-            title={selected.displayName}
-            subtitle="Entrez votre code à 4 chiffres"
-            error={pinError}
-            onSubmit={onPin}
-            onCancel={() => setSelected(null)}
-          />
+          <PinPad title={selected.displayName} subtitle="Entrez votre code à 4 chiffres"
+            error={pinError} onSubmit={onPin} onCancel={() => setSelected(null)} />
         </div>
       )}
 
       {selected && selected.unlocked && (
-        <ActionScreen
-          emp={selected}
-          day={days[selected.id]}
-          onPunch={doPunch}
-          onCancel={() => setSelected(null)}
-        />
+        <ActionScreen emp={selected} day={days[selected.id]} onPunch={doPunch} onCancel={() => setSelected(null)} />
       )}
     </div>
   );
@@ -153,9 +194,7 @@ function ActionScreen({ emp, day, onPunch, onCancel }) {
       <h2 style={{ fontSize: 24, fontWeight: 600 }}>{emp.displayName}</h2>
       <DayStrip day={day} />
       {actions.length === 0 ? (
-        <p style={{ color: "var(--green)", fontSize: 18, margin: "30px 0" }}>
-          ✓ Journée complète. Rien à pointer.
-        </p>
+        <p style={{ color: "var(--green)", fontSize: 18, margin: "30px 0" }}>✓ Journée complète. Rien à pointer.</p>
       ) : (
         <div style={{ display: "grid", gap: 14, marginTop: 26 }}>
           {actions.map(([type, label, color]) => (
@@ -167,9 +206,7 @@ function ActionScreen({ emp, day, onPunch, onCancel }) {
           ))}
         </div>
       )}
-      <button onClick={onCancel} style={{
-        marginTop: 22, padding: "12px 24px", color: "var(--text-dim)", fontSize: 15,
-      }}>← Retour</button>
+      <button onClick={onCancel} style={{ marginTop: 22, padding: "12px 24px", color: "var(--text-dim)", fontSize: 15 }}>← Retour</button>
     </div>
   );
 }
@@ -182,14 +219,9 @@ function DayStrip({ day }) {
   return (
     <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
       {items.map(([label, ts]) => (
-        <div key={label} style={{
-          padding: "8px 12px", borderRadius: 9, background: "var(--ink-2)",
-          border: "1px solid var(--line)", minWidth: 74,
-        }}>
+        <div key={label} style={{ padding: "8px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", minWidth: 74 }}>
           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{label}</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: ts ? "var(--text)" : "var(--text-faint)" }}>
-            {ts ? fmtTs(ts) : "—"}
-          </div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: ts ? "var(--text)" : "var(--text-faint)" }}>{ts ? fmtTs(ts) : "—"}</div>
         </div>
       ))}
     </div>

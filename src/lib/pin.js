@@ -11,8 +11,8 @@
 
 // Sels applicatifs. Change-les à l'installation. Le sel manager est distinct
 // pour éviter qu'un PIN salarié == PIN manager produise le même hash.
-const SALT_EMPLOYEE = "k7Rx9mP2vQ8wZ4nL6tJ3bF5hD1sG0yA";
-const SALT_MANAGER = "aH4jN8kW2pT6xR9mB3vL7cF1qD5zY0sE";
+const SALT_EMPLOYEE = "rlb-pointage-emp-2026";
+const SALT_MANAGER = "rlb-pointage-mgr-2026";
 
 async function sha256(text) {
   const data = new TextEncoder().encode(text);

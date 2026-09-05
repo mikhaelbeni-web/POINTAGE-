@@ -14,11 +14,14 @@ function mondayOf(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function Dashboard({ employees, onEditDay }) {
+export default function Dashboard({ employees, sites = [], allowedSiteIds = null, onEditDay }) {
   const [days, setDays] = useState({});
   const [settings, setSettings] = useState(null);
   const [weekAlerts, setWeekAlerts] = useState([]);
+  const [filterSite, setFilterSite] = useState("all");
   const today = todayStr();
+
+  const visibleSites = allowedSiteIds ? sites.filter((s) => allowedSiteIds.includes(s.id)) : sites;
 
   useEffect(() => { getSettings().then(setSettings); }, []);
 
@@ -37,7 +40,11 @@ export default function Dashboard({ employees, onEditDay }) {
     (async () => {
       const start = mondayOf(today);
       const alerts = [];
-      for (const e of employees.filter((x) => x.active !== false)) {
+      const pool = employees
+        .filter((x) => x.active !== false)
+        .filter((x) => !allowedSiteIds || allowedSiteIds.includes(x.siteId))
+        .filter((x) => filterSite === "all" || x.siteId === filterSite);
+      for (const e of pool) {
         const ds = await getDaysRange(e.id, start, today);
         const worked = ds.reduce((s, d) => s + (d.workedMinutes || 0), 0);
         const cls = classifyWeek(worked, e, settings);
@@ -47,19 +54,31 @@ export default function Dashboard({ employees, onEditDay }) {
       }
       setWeekAlerts(alerts);
     })();
-  }, [settings, employees, today]);
+  }, [settings, employees, today, allowedSiteIds, filterSite]);
 
-  const active = employees.filter((e) => e.active !== false);
+  const active = employees
+    .filter((e) => e.active !== false)
+    .filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId))
+    .filter((e) => filterSite === "all" || e.siteId === filterSite);
   const present = active.filter((e) => days[e.id]?.status === "present" || days[e.id]?.status === "incomplete");
   const worksToday = active.filter((e) => (e.workDays || []).includes(isoWeekday(today)));
   const absent = worksToday.filter((e) => !days[e.id] || days[e.id].status === "absent");
   const late = active.filter((e) => (days[e.id]?.lateMinutes || 0) > 0);
   const restViol = active.filter((e) => days[e.id]?.restViolation);
+  const spanViol = active.filter((e) => days[e.id]?.spanViolation);
 
   if (!settings) return <p style={{ color: "var(--text-dim)" }}>Chargement…</p>;
 
   return (
     <div>
+      {visibleSites.length > 1 && (
+        <div style={{ marginBottom: 16 }}>
+          <select style={{ ...tdInp }} value={filterSite} onChange={(e) => setFilterSite(e.target.value)}>
+            <option value="all">Tous mes magasins</option>
+            {visibleSites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12, marginBottom: 20 }}>
         <Kpi label="En poste" value={present.length} color="var(--green)" />
         <Kpi label="Absents" value={absent.length} color={absent.length ? "var(--red)" : "var(--text-dim)"} />
@@ -67,11 +86,16 @@ export default function Dashboard({ employees, onEditDay }) {
         <Kpi label="Prévus aujourd'hui" value={worksToday.length} color="var(--text-dim)" />
       </div>
 
-      {(restViol.length > 0 || weekAlerts.length > 0) && (
+      {(restViol.length > 0 || spanViol.length > 0 || weekAlerts.length > 0) && (
         <div style={{ marginBottom: 20, display: "grid", gap: 8 }}>
           {restViol.map((e) => (
             <Alert key={e.id} color="var(--red)">
               Repos minimum non respecté — {e.displayName} ({minutesToHHhMM(days[e.id].restMinutes)} depuis la veille, minimum {minutesToHHhMM(settings.restMinMinutes)})
+            </Alert>
+          ))}
+          {spanViol.map((e) => (
+            <Alert key={"sp" + e.id} color="var(--red)">
+              Amplitude maximale dépassée — {e.displayName} ({minutesToHHhMM(days[e.id].spanMinutes)} sur place, maximum {minutesToHHhMM(settings.maxSpanMinutes)})
             </Alert>
           ))}
           {weekAlerts.map((a, i) => (
@@ -87,7 +111,7 @@ export default function Dashboard({ employees, onEditDay }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-              {["Salarié", "Statut", "Arrivée", "Pause", "Retour", "Départ", "Travaillé", "Retard", ""].map((h) => (
+              {["Salarié", "Statut", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Travaillé", "Retard", ""].map((h) => (
                 <th key={h} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500 }}>{h}</th>
               ))}
             </tr>
@@ -105,6 +129,7 @@ export default function Dashboard({ employees, onEditDay }) {
                   <td style={td}>{fmt(d?.breakOut)}</td>
                   <td style={td}>{fmt(d?.breakIn)}</td>
                   <td style={td}>{fmt(d?.departure)}</td>
+                  <td style={{ ...td, color: "var(--amber)" }}>{d?.breakMinutes ? minutesToHHhMM(d.breakMinutes) : "—"}</td>
                   <td style={td}>{d?.workedMinutes ? minutesToHHhMM(d.workedMinutes) : "—"}</td>
                   <td style={{ ...td, color: d?.lateMinutes ? "var(--amber)" : "var(--text-faint)" }}>
                     {d?.lateMinutes ? minutesToHHhMM(d.lateMinutes) : "—"}
@@ -142,6 +167,7 @@ function Alert({ color, children }) {
   );
 }
 const td = { padding: "9px 10px" };
+const tdInp = { padding: "9px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 14 };
 function fmt(ts) {
   if (!ts) return <span style={{ color: "var(--text-faint)" }}>—</span>;
   const d = ts.toDate ? ts.toDate() : new Date(ts);

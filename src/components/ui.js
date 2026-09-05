@@ -20,8 +20,22 @@ export function StatusPill({ status, leaveType }) {
   );
 }
 
+export const LEAVE_TYPES = [
+  ["cp", "Congés payés"],
+  ["rtt", "RTT"],
+  ["sick", "Arrêt maladie"],
+  ["unjustified", "Absence injustifiée"],
+  ["parental", "Congé parental"],
+  ["paternity", "Congé paternité"],
+  ["conventional", "Congé conventionnel"],
+  ["rest", "Repos"],
+  ["unpaid", "Sans solde"],
+  ["other", "Autre"],
+];
+
 export function leaveLabel(t) {
-  return { cp: "Congés payés", rtt: "RTT", sick: "Arrêt maladie", unpaid: "Sans solde", other: "Congé" }[t] || "Congé";
+  const found = LEAVE_TYPES.find(([k]) => k === t);
+  return found ? found[1] : "Congé";
 }
 
 /** Pavé PIN 4 chiffres. onSubmit(pin) appelé à 4 chiffres. */

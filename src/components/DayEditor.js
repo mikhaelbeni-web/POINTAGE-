@@ -2,7 +2,36 @@
 import { useEffect, useState } from "react";
 import { Modal, Field, inp, btnPrimary, btnGhost } from "./Employees";
 import { setDayTimes, addLeave, getLeaves, deleteLeave, getDaysRange } from "../lib/store";
-import { leaveLabel } from "./ui";
+import { leaveLabel, LEAVE_TYPES } from "./ui";
+import { minutesToHHhMM } from "../lib/timeLogic";
+
+function toMin(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Aperçu en direct : amplitude, pause déduite, temps de travail.
+function LivePreview({ times }) {
+  const a = toMin(times.arrival), d = toMin(times.departure);
+  const bo = toMin(times.breakOut), bi = toMin(times.breakIn);
+  let span = null, brk = 0, worked = null;
+  if (a != null && d != null) {
+    span = d < a ? d + 1440 - a : d - a;
+  }
+  if (bo != null && bi != null) {
+    brk = Math.max(0, (bi < bo ? bi + 1440 : bi) - bo);
+  }
+  if (span != null) worked = Math.max(0, span - brk);
+
+  return (
+    <div style={{ display: "flex", gap: 20, padding: "10px 14px", background: "var(--ink-2)", borderRadius: 9, fontSize: 14 }}>
+      <span style={{ color: "var(--text-dim)" }}>Amplitude : <strong style={{ color: "var(--text)" }}>{span != null ? minutesToHHhMM(span) : "—"}</strong></span>
+      <span style={{ color: "var(--text-dim)" }}>Pause : <strong style={{ color: "var(--amber)" }}>{brk ? minutesToHHhMM(brk) : "0h00"}</strong></span>
+      <span style={{ color: "var(--text-dim)" }}>Travaillé : <strong style={{ color: "var(--green)" }}>{worked != null ? minutesToHHhMM(worked) : "—"}</strong></span>
+    </div>
+  );
+}
 
 function tsToHHMM(ts) {
   if (!ts) return "";
@@ -56,6 +85,9 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
           <Field label="Retour pause"><input type="time" style={inp} value={times.breakIn} onChange={(e) => setTimes({ ...times, breakIn: e.target.value })} /></Field>
           <Field label="Départ"><input type="time" style={inp} value={times.departure} onChange={(e) => setTimes({ ...times, departure: e.target.value })} /></Field>
         </div>
+
+        <LivePreview times={times} />
+
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
           <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "…" : "Enregistrer les horaires"}</button>
         </div>
@@ -76,8 +108,7 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <Field label="Type">
             <select style={inp} value={leaveForm.type} onChange={(e) => setLeaveForm({ ...leaveForm, type: e.target.value })}>
-              <option value="cp">Congés payés</option><option value="rtt">RTT</option>
-              <option value="sick">Arrêt maladie</option><option value="unpaid">Sans solde</option><option value="other">Autre</option>
+              {LEAVE_TYPES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </select>
           </Field>
           <Field label="Du"><input type="date" style={inp} value={leaveForm.startDate} onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })} /></Field>

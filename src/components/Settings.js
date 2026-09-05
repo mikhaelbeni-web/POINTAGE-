@@ -2,12 +2,10 @@
 import { useEffect, useState } from "react";
 import { Field, inp, btnPrimary } from "./Employees";
 import { getSettings, saveSettings } from "../lib/store";
-import { hashManagerPin, isValidPin } from "../lib/pin";
 import { minutesToHHhMM } from "../lib/timeLogic";
 
 export default function Settings() {
   const [s, setS] = useState(null);
-  const [newPin, setNewPin] = useState("");
   const [msg, setMsg] = useState(null);
 
   useEffect(() => { getSettings().then(setS); }, []);
@@ -15,16 +13,13 @@ export default function Settings() {
 
   async function save() {
     setMsg(null);
-    if (newPin && !isValidPin(newPin)) { setMsg({ t: "err", m: "PIN manager = 4 chiffres" }); return; }
-    const patch = {
+    await saveSettings({
       restMinMinutes: Number(s.restMinMinutes),
       lateToleranceMinutes: Number(s.lateToleranceMinutes),
       weeklyOvertimeAlertMinutes: Number(s.weeklyOvertimeAlertMinutes),
+      maxSpanMinutes: Number(s.maxSpanMinutes),
       fullTimeWeeklyMinutes: Number(s.fullTimeWeeklyMinutes),
-    };
-    if (newPin) patch.managerPinHash = await hashManagerPin(newPin);
-    await saveSettings(patch);
-    setNewPin("");
+    });
     setMsg({ t: "ok", m: "Paramètres enregistrés" });
   }
 
@@ -45,17 +40,15 @@ export default function Settings() {
         {numField("restMinMinutes", "Repos minimum entre deux journées", "Défaut 660 min = 11h")}
         {numField("lateToleranceMinutes", "Tolérance de retard", "Défaut 5 min")}
         {numField("weeklyOvertimeAlertMinutes", "Seuil d'alerte heures supp./sem.", "Défaut 240 min = 4h")}
+        {numField("maxSpanMinutes", "Amplitude horaire maximum / jour", "Défaut 720 min = 12h. Au-delà : alerte")}
         {numField("fullTimeWeeklyMinutes", "Base hebdo temps plein", "36h75 convention = 2205 min = 36h45")}
-
-        <hr style={{ border: "none", borderTop: "1px solid var(--line)" }} />
-        <Field label="Changer le PIN manager" hint="Laisser vide pour garder l'actuel. 4 chiffres.">
-          <input style={{ ...inp, width: 140 }} inputMode="numeric" maxLength={4} value={newPin}
-            onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} placeholder="••••" />
-        </Field>
 
         {msg && <p style={{ color: msg.t === "ok" ? "var(--green)" : "var(--red)", fontSize: 14 }}>{msg.m}</p>}
         <div><button onClick={save} style={btnPrimary}>Enregistrer</button></div>
       </div>
+      <p style={{ color: "var(--text-faint)", fontSize: 13, marginTop: 18 }}>
+        Les PIN managers et les magasins se gèrent dans l'onglet « Magasins & accès ».
+      </p>
     </div>
   );
 }

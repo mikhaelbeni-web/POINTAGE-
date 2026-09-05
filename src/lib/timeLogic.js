@@ -90,13 +90,21 @@ export function computeDay(p, emp, settings, dateStr) {
     breakMinutes = Math.max(0, Math.round((bIn - breakOut) / 60000));
   }
 
+  // Amplitude = présence totale (départ - arrivée), pause INCLUSE.
+  let spanMinutes = 0;
+  if (arrival != null && departure != null) {
+    spanMinutes = Math.max(0, Math.round((departure - arrival) / 60000));
+  }
+
+  // Temps de travail = amplitude - pause. La pause est TOUJOURS déduite.
   let workedMinutes = 0;
   if (arrival != null && departure != null) {
-    workedMinutes = Math.max(
-      0,
-      Math.round((departure - arrival) / 60000) - breakMinutes
-    );
+    workedMinutes = Math.max(0, spanMinutes - breakMinutes);
   }
+
+  // Alerte amplitude maximale (ex. 12h). Sur la présence, pas le travail.
+  const maxSpan = settings.maxSpanMinutes ?? 720;
+  const spanViolation = spanMinutes > maxSpan;
 
   // Retard vs horaire prévu, avec tolérance
   let lateMinutes = 0;
@@ -114,7 +122,7 @@ export function computeDay(p, emp, settings, dateStr) {
   else if (worksToday) status = "absent";
   else status = "off";
 
-  return { workedMinutes, breakMinutes, lateMinutes, status, worksToday };
+  return { workedMinutes, breakMinutes, spanMinutes, spanViolation, lateMinutes, status, worksToday };
 }
 
 // --- Alerte repos minimum entre deux jours ------------------
@@ -169,6 +177,7 @@ export const DEFAULT_SETTINGS = {
   restMinMinutes: 660, // 11h
   lateToleranceMinutes: 5,
   weeklyOvertimeAlertMinutes: 240, // 4h/semaine
+  maxSpanMinutes: 720, // amplitude max 12h
   fullTimeWeeklyMinutes: FULL_TIME_WEEKLY_MINUTES,
   timezone: "Europe/Paris",
 };

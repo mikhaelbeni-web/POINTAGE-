@@ -1,7 +1,5 @@
 // ============================================================
 // firebase.js — Initialisation Firebase (client)
-// Remplace firebaseConfig par la config de TON projet
-// (Firebase console > Paramètres du projet > tes applications).
 // ============================================================
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
@@ -17,7 +15,3 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-
-// Site courant. Mono-site aujourd'hui ; passe cette valeur en dynamique
-// (sélecteur de site) le jour où tu ajoutes des établissements.
-export const SITE_ID = "main";
