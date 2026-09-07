@@ -6,7 +6,7 @@
 // ============================================================
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  query, where, onSnapshot, serverTimestamp, Timestamp,
+  query, where, onSnapshot, serverTimestamp, Timestamp, runTransaction,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
@@ -98,14 +98,55 @@ export function watchEmployees(cb) {
     cb(list);
   });
 }
+// Clé de verrou pour un matricule (unicité réseau).
+const matLockId = (mat) => `mat_${String(mat).trim()}`;
+
+/**
+ * Enregistre un salarié en RÉSERVANT son matricule de façon atomique.
+ * Un doc matricules/{mat_XXX} sert de verrou : la transaction échoue
+ * si le matricule est déjà réservé par un AUTRE salarié.
+ * Impossible de créer deux salariés avec le même matricule, même simultanément.
+ */
 export async function saveEmployee(emp) {
   const id = emp.id || doc(collection(db, "employees")).id;
   const { id: _omit, ...data } = emp;
-  await setDoc(doc(db, "employees", id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  const newMat = String(data.matricule || "").trim();
+  if (!newMat) throw new Error("Matricule requis");
+
+  // Ancien matricule (si modification) pour libérer l'ancien verrou.
+  let oldMat = null;
+  if (emp.id) {
+    const prev = await getDoc(doc(db, "employees", id));
+    if (prev.exists()) oldMat = String(prev.data().matricule || "").trim();
+  }
+
+  await runTransaction(db, async (tx) => {
+    const lockRef = doc(db, "matricules", matLockId(newMat));
+    const lockSnap = await tx.get(lockRef);
+    // Le verrou existe ET appartient à un autre salarié -> refus.
+    if (lockSnap.exists() && lockSnap.data().employeeId !== id) {
+      throw new Error("Ce matricule est déjà utilisé par un autre salarié.");
+    }
+    // Réserve le nouveau matricule pour ce salarié.
+    tx.set(lockRef, { employeeId: id, matricule: newMat });
+    // Libère l'ancien matricule s'il a changé.
+    if (oldMat && oldMat !== newMat) {
+      tx.delete(doc(db, "matricules", matLockId(oldMat)));
+    }
+    // Écrit le salarié.
+    tx.set(doc(db, "employees", id), { ...data, matricule: newMat, updatedAt: serverTimestamp() }, { merge: true });
+  });
   return id;
 }
+
 export async function deleteEmployee(id) {
+  // Libère le verrou de matricule en même temps que la suppression.
+  const snap = await getDoc(doc(db, "employees", id));
+  const mat = snap.exists() ? String(snap.data().matricule || "").trim() : null;
   await deleteDoc(doc(db, "employees", id));
+  if (mat) {
+    try { await deleteDoc(doc(db, "matricules", matLockId(mat))); } catch (_) {}
+  }
 }
 async function getEmployee(empId) {
   const s = await getDoc(doc(db, "employees", empId));

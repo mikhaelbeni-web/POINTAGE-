@@ -27,9 +27,9 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
     if (!edit.siteId) { setErr("Magasin requis"); return; }
     if (!edit.matricule || !String(edit.matricule).trim()) { setErr("Matricule requis"); return; }
     const mat = String(edit.matricule).trim();
-    // unicité : aucun autre salarié (id différent) ne doit avoir ce matricule
+    // Pré-vérif locale (retour rapide, sans révéler le nom d'un autre magasin).
     const clash = employees.find((e) => String(e.matricule) === mat && e.id !== edit.id);
-    if (clash) { setErr(`Matricule déjà utilisé par ${clash.displayName}`); return; }
+    if (clash) { setErr("Ce matricule est déjà utilisé."); return; }
     setSaving(true);
     const emp = {
       ...edit,
@@ -37,9 +37,15 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
       displayName: edit.displayName || `${edit.firstName} ${edit.lastName[0]}.`,
       weeklyContractMinutes: Number(edit.weeklyContractMinutes),
     };
-    await saveEmployee(emp);
-    setSaving(false);
-    setEdit(null);
+    try {
+      await saveEmployee(emp); // garde ATOMIQUE : refuse un doublon même simultané
+      setEdit(null);
+    } catch (e) {
+      // La transaction a refusé (matricule pris entre-temps par un autre poste).
+      setErr(e.message || "Enregistrement refusé : matricule déjà pris.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function remove(e) {
