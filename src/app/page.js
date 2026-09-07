@@ -102,10 +102,22 @@ export default function Page() {
             }}>{label}</button>
           ))}
         </div>
-        <button onClick={() => setSession(null)} style={{
-          padding: "9px 15px", borderRadius: 10, fontSize: 14,
-          background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
-        }}>← Badgeuse</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => {
+            if (confirm("Changer le magasin de CETTE tablette ? La badgeuse redemandera le magasin et son code.")) {
+              localStorage.removeItem("pointage_tablet_site");
+              localStorage.removeItem("pointage_tablet_unlock");
+              setSession(null);
+            }
+          }} style={{
+            padding: "9px 15px", borderRadius: 10, fontSize: 14,
+            background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
+          }}>Changer magasin tablette</button>
+          <button onClick={() => setSession(null)} style={{
+            padding: "9px 15px", borderRadius: 10, fontSize: 14,
+            background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
+          }}>← Badgeuse</button>
+        </div>
       </header>
 
       {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}

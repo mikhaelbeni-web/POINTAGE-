@@ -25,13 +25,18 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
     setErr(null);
     if (!edit.firstName || !edit.lastName) { setErr("Nom et prénom requis"); return; }
     if (!edit.siteId) { setErr("Magasin requis"); return; }
+    if (!edit.matricule || !String(edit.matricule).trim()) { setErr("Matricule requis"); return; }
+    const mat = String(edit.matricule).trim();
+    // unicité : aucun autre salarié (id différent) ne doit avoir ce matricule
+    const clash = employees.find((e) => String(e.matricule) === mat && e.id !== edit.id);
+    if (clash) { setErr(`Matricule déjà utilisé par ${clash.displayName}`); return; }
     setSaving(true);
     const emp = {
       ...edit,
+      matricule: mat,
       displayName: edit.displayName || `${edit.firstName} ${edit.lastName[0]}.`,
       weeklyContractMinutes: Number(edit.weeklyContractMinutes),
     };
-    if (!emp.matricule) emp.matricule = await nextMatricule(); // auto à la création
     await saveEmployee(emp);
     setSaving(false);
     setEdit(null);
@@ -104,8 +109,16 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
                   <option value="cadre">Cadre (demi-journées)</option>
                 </select>
               </Field>
-              <Field label="Matricule" hint={edit.id ? "Sert à badger" : "Attribué automatiquement"}>
-                <input style={{ ...inp, background: "var(--ink-3)" }} value={edit.matricule || "(auto)"} disabled />
+              <Field label="Matricule" hint="Code que le salarié tape pour badger. À lui communiquer.">
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input style={inp} inputMode="numeric" value={edit.matricule || ""}
+                    onChange={(ev) => setEdit({ ...edit, matricule: ev.target.value.replace(/\D/g, "") })}
+                    placeholder="Ex. 101" />
+                  {!edit.id && (
+                    <button type="button" onClick={async () => setEdit({ ...edit, matricule: await nextMatricule() })}
+                      style={{ ...btnGhost, whiteSpace: "nowrap" }}>Suggérer</button>
+                  )}
+                </div>
               </Field>
             </div>
 
