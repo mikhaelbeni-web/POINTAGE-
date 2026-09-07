@@ -15,8 +15,19 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
   const [recaps, setRecaps] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedSites, setSelectedSites] = useState([]); // [] = tous les magasins autorisés
 
-  const scoped = employees.filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId));
+  // Magasins que cet utilisateur peut voir
+  const visibleSites = (allowedSiteIds ? sites.filter((s) => allowedSiteIds.includes(s.id)) : sites);
+
+  // Salariés dans le périmètre ET filtrés par les magasins sélectionnés
+  const scoped = employees
+    .filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId))
+    .filter((e) => selectedSites.length === 0 || selectedSites.includes(e.siteId));
+
+  function toggleSite(id) {
+    setSelectedSites((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
 
   async function generate() {
     setLoading(true);
@@ -41,14 +52,42 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
     }
   }
 
-  useEffect(() => { setRecaps(null); }, [empId, year, month]);
+  // Si le magasin du salarié sélectionné n'est plus dans le filtre, réinitialiser
+  useEffect(() => { setRecaps(null); }, [empId, year, month, selectedSites]);
+  useEffect(() => {
+    if (empId !== "all" && !scoped.find((e) => e.id === empId)) setEmpId("all");
+  }, [selectedSites]); // eslint-disable-line
 
   return (
     <div>
+      {visibleSites.length > 1 && (
+        <div className="no-print" style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 6 }}>Magasins (aucun sélectionné = tous)</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {visibleSites.map((s) => {
+              const on = selectedSites.includes(s.id);
+              return (
+                <button key={s.id} onClick={() => toggleSite(s.id)} style={{
+                  padding: "8px 14px", borderRadius: 8, fontSize: 14, fontWeight: 500,
+                  background: on ? "color-mix(in srgb, var(--brass) 22%, var(--ink-2))" : "var(--ink-2)",
+                  border: `1px solid ${on ? "var(--brass)" : "var(--line)"}`, color: "var(--text)",
+                }}>{on ? "☑" : "☐"} {s.name}</button>
+              );
+            })}
+            {selectedSites.length > 0 && (
+              <button onClick={() => setSelectedSites([])} style={{
+                padding: "8px 14px", borderRadius: 8, fontSize: 14, color: "var(--text-dim)",
+                background: "transparent", border: "1px solid var(--line)",
+              }}>Tout afficher</button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="no-print" style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 20 }}>
         <label style={{ fontSize: 13, color: "var(--text-dim)" }}>Salarié<br />
           <select style={{ ...inp, marginTop: 5 }} value={empId} onChange={(e) => setEmpId(e.target.value)}>
-            <option value="all">Tous les salariés actifs</option>
+            <option value="all">Tous les salariés{selectedSites.length ? " (magasins filtrés)" : " actifs"}</option>
             {scoped.map((e) => <option key={e.id} value={e.id}>{e.displayName}</option>)}
           </select>
         </label>
