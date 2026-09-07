@@ -14,7 +14,7 @@ function mondayOf(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function Dashboard({ employees, sites = [], allowedSiteIds = null, onEditDay }) {
+export default function Dashboard({ employees, sites = [], allowedSiteIds = null, canEdit = true, onEditDay }) {
   const [days, setDays] = useState({});
   const [settings, setSettings] = useState(null);
   const [weekAlerts, setWeekAlerts] = useState([]);
@@ -135,9 +135,11 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                     {d?.lateMinutes ? minutesToHHhMM(d.lateMinutes) : "—"}
                   </td>
                   <td style={td}>
-                    <button onClick={() => onEditDay(e, today)} style={{
-                      fontSize: 13, color: "var(--brass)", padding: "4px 8px",
-                    }}>Corriger</button>
+                    {canEdit ? (
+                      <button onClick={() => onEditDay(e, today)} style={{
+                        fontSize: 13, color: "var(--brass)", padding: "4px 8px",
+                      }}>Corriger</button>
+                    ) : null}
                   </td>
                 </tr>
               );

@@ -1,16 +1,16 @@
 "use client";
 import { useState } from "react";
-import { saveEmployee, deleteEmployee } from "../lib/store";
-import { hashEmployeePin, isValidPin } from "../lib/pin";
+import { saveEmployee, deleteEmployee, nextMatricule } from "../lib/store";
 import { minutesToHHhMM, FULL_TIME_WEEKLY_MINUTES } from "../lib/timeLogic";
 
 const DAYS = [["Lun", 1], ["Mar", 2], ["Mer", 3], ["Jeu", 4], ["Ven", 5], ["Sam", 6], ["Dim", 7]];
 
 const blank = (siteId) => ({
   firstName: "", lastName: "", displayName: "", siteId: siteId || "",
+  category: "employee",
   contractType: "full", weeklyContractMinutes: FULL_TIME_WEEKLY_MINUTES,
   workDays: [1, 2, 3, 4, 5], plannedStart: "09:00", plannedEnd: "17:00",
-  active: true, newPin: "",
+  active: true,
 });
 
 export default function Employees({ employees, sites = [], allowedSiteIds = null }) {
@@ -19,23 +19,19 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
   const [err, setErr] = useState(null);
   const [filterSite, setFilterSite] = useState("all");
 
-  // Magasins que ce manager peut voir/gérer
   const visibleSites = allowedSiteIds ? sites.filter((s) => allowedSiteIds.includes(s.id)) : sites;
 
   async function save() {
     setErr(null);
     if (!edit.firstName || !edit.lastName) { setErr("Nom et prénom requis"); return; }
     if (!edit.siteId) { setErr("Magasin requis"); return; }
-    if (edit.newPin && !isValidPin(edit.newPin)) { setErr("Le PIN doit faire 4 chiffres"); return; }
-    if (!edit.id && !edit.newPin) { setErr("Un PIN à 4 chiffres est requis à la création"); return; }
     setSaving(true);
     const emp = {
       ...edit,
       displayName: edit.displayName || `${edit.firstName} ${edit.lastName[0]}.`,
       weeklyContractMinutes: Number(edit.weeklyContractMinutes),
     };
-    if (edit.newPin) emp.pin = await hashEmployeePin(edit.newPin);
-    delete emp.newPin;
+    if (!emp.matricule) emp.matricule = await nextMatricule(); // auto à la création
     await saveEmployee(emp);
     setSaving(false);
     setEdit(null);
@@ -74,7 +70,7 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
                 {e.active === false && <span style={{ color: "var(--text-faint)", fontSize: 13, fontWeight: 400 }}> · inactif</span>}
               </div>
               <div style={{ fontSize: 13, color: "var(--text-dim)" }}>
-                {e.contractType === "full" ? "Temps plein" : "Temps partiel"} · {minutesToHHhMM(e.weeklyContractMinutes)}/sem · prévu {e.plannedStart}–{e.plannedEnd}
+                Mat. {e.matricule || "—"} · {e.category === "cadre" ? "Cadre (demi-journées)" : (e.contractType === "full" ? "Temps plein" : "Temps partiel") + " · " + minutesToHHhMM(e.weeklyContractMinutes) + "/sem"}
               </div>
             </div>
             <button onClick={() => setEdit({ ...e, newPin: "" })} style={btnGhost}>Modifier</button>
@@ -102,19 +98,43 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
             </Field>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Type de contrat">
-                <select style={inp} value={edit.contractType} onChange={(ev) => {
-                  const ct = ev.target.value;
-                  setEdit({ ...edit, contractType: ct, weeklyContractMinutes: ct === "full" ? FULL_TIME_WEEKLY_MINUTES : edit.weeklyContractMinutes });
-                }}>
-                  <option value="full">Temps plein</option>
-                  <option value="part">Temps partiel</option>
+              <Field label="Catégorie" hint="Cadre = pointage matin/après-midi (pas d'heures)">
+                <select style={inp} value={edit.category} onChange={(ev) => setEdit({ ...edit, category: ev.target.value })}>
+                  <option value="employee">Employé (pointage horaire)</option>
+                  <option value="cadre">Cadre (demi-journées)</option>
                 </select>
               </Field>
-              <Field label="Heures/sem contrat" hint={`Ex. plein = ${minutesToHHhMM(FULL_TIME_WEEKLY_MINUTES)} (36h75 conv.)`}>
-                <MinutesInput value={edit.weeklyContractMinutes} onChange={(v) => setEdit({ ...edit, weeklyContractMinutes: v })} />
+              <Field label="Matricule" hint={edit.id ? "Sert à badger" : "Attribué automatiquement"}>
+                <input style={{ ...inp, background: "var(--ink-3)" }} value={edit.matricule || "(auto)"} disabled />
               </Field>
             </div>
+
+            {edit.category === "employee" && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Type de contrat">
+                    <select style={inp} value={edit.contractType} onChange={(ev) => {
+                      const ct = ev.target.value;
+                      setEdit({ ...edit, contractType: ct, weeklyContractMinutes: ct === "full" ? FULL_TIME_WEEKLY_MINUTES : edit.weeklyContractMinutes });
+                    }}>
+                      <option value="full">Temps plein</option>
+                      <option value="part">Temps partiel</option>
+                    </select>
+                  </Field>
+                  <Field label="Heures/sem contrat" hint={`Ex. plein = ${minutesToHHhMM(FULL_TIME_WEEKLY_MINUTES)} (36h75 conv.)`}>
+                    <MinutesInput value={edit.weeklyContractMinutes} onChange={(v) => setEdit({ ...edit, weeklyContractMinutes: v })} />
+                  </Field>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Arrivée prévue" hint="Sert au calcul du retard">
+                    <input type="time" style={inp} value={edit.plannedStart} onChange={(ev) => setEdit({ ...edit, plannedStart: ev.target.value })} />
+                  </Field>
+                  <Field label="Départ prévu">
+                    <input type="time" style={inp} value={edit.plannedEnd} onChange={(ev) => setEdit({ ...edit, plannedEnd: ev.target.value })} />
+                  </Field>
+                </div>
+              </>
+            )}
 
             <Field label="Jours travaillés">
               <div style={{ display: "flex", gap: 6 }}>
@@ -135,27 +155,12 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
               </div>
             </Field>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Arrivée prévue" hint="Sert au calcul du retard">
-                <input type="time" style={inp} value={edit.plannedStart} onChange={(ev) => setEdit({ ...edit, plannedStart: ev.target.value })} />
-              </Field>
-              <Field label="Départ prévu">
-                <input type="time" style={inp} value={edit.plannedEnd} onChange={(ev) => setEdit({ ...edit, plannedEnd: ev.target.value })} />
-              </Field>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label={edit.id ? "Nouveau PIN (si changement)" : "PIN 4 chiffres"} hint={edit.id ? "Laisser vide pour garder l'actuel" : "Le salarié badge avec ce code"}>
-                <input style={inp} inputMode="numeric" maxLength={4} value={edit.newPin}
-                  onChange={(ev) => setEdit({ ...edit, newPin: ev.target.value.replace(/\D/g, "") })} placeholder="••••" />
-              </Field>
-              <Field label="Statut">
-                <select style={inp} value={edit.active ? "1" : "0"} onChange={(ev) => setEdit({ ...edit, active: ev.target.value === "1" })}>
-                  <option value="1">Actif</option>
-                  <option value="0">Inactif</option>
-                </select>
-              </Field>
-            </div>
+            <Field label="Statut">
+              <select style={{ ...inp, maxWidth: 200 }} value={edit.active ? "1" : "0"} onChange={(ev) => setEdit({ ...edit, active: ev.target.value === "1" })}>
+                <option value="1">Actif</option>
+                <option value="0">Inactif</option>
+              </select>
+            </Field>
 
             {err && <p style={{ color: "var(--red)", fontSize: 14 }}>{err}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>

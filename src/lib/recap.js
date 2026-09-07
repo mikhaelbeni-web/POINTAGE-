@@ -30,6 +30,7 @@ export function monthBounds(year, month) {
  * @returns { weeks:[...], totals:{...} }
  */
 export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
+  if (emp.category === "cadre") return buildCadreRecap(emp, days, leaves, year, month);
   const byDate = {};
   days.forEach((d) => (byDate[d.date] = d));
 
@@ -93,4 +94,63 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
   totals.overtimeType = emp.contractType === "part" ? "complementary" : "supplementary";
 
   return { weeks, totals };
+}
+
+// --- Récap mensuel CADRE : demi-journées, pas d'heures ---------
+export function buildCadreRecap(emp, days, leaves, year, month) {
+  const byDate = {};
+  days.forEach((d) => (byDate[d.date] = d));
+
+  const leaveByDate = {};
+  leaves.forEach((l) => {
+    let cur = new Date(l.startDate);
+    const end = new Date(l.endDate);
+    while (cur <= end) {
+      leaveByDate[cur.toISOString().slice(0, 10)] = l.type;
+      cur.setDate(cur.getDate() + 1);
+    }
+  });
+
+  const weeksMap = {};
+  for (const date of monthDates(year, month)) {
+    const wk = weekKey(date);
+    if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], daysPresent: 0 };
+    const d = byDate[date];
+    const worksToday = (emp.workDays || []).includes(isoWeekday(date));
+    const fullDayLeave = leaveByDate[date];
+
+    let morning = d?.morning || null;
+    let afternoon = d?.afternoon || null;
+    // congé posé sur la journée entière (via onglet congés) : prime si rien de badgé
+    if (fullDayLeave && !morning && !afternoon) { morning = fullDayLeave; afternoon = fullDayLeave; }
+
+    const presentHalves = (morning === "present" ? 1 : 0) + (afternoon === "present" ? 1 : 0);
+    const fraction = presentHalves * 0.5;
+
+    let status = "off";
+    if (morning == null && afternoon == null) status = worksToday ? "absent" : "off";
+    else if (presentHalves === 2) status = "present";
+    else if (presentHalves === 1) status = "partial";
+    else status = "leave";
+
+    weeksMap[wk].rows.push({ date, morning, afternoon, fraction, status });
+    weeksMap[wk].daysPresent += fraction;
+  }
+
+  const weeks = Object.values(weeksMap)
+    .sort((a, b) => a.weekKey.localeCompare(b.weekKey))
+    .map((w) => ({
+      ...w,
+      absences: w.rows.filter((r) => r.status === "absent").length,
+    }));
+
+  const totals = weeks.reduce(
+    (t, w) => ({
+      daysPresent: t.daysPresent + w.daysPresent,
+      absences: t.absences + w.absences,
+    }),
+    { daysPresent: 0, absences: 0 }
+  );
+
+  return { cadre: true, weeks, totals };
 }

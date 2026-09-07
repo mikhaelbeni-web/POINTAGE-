@@ -9,10 +9,30 @@ import {
   query, where, onSnapshot, serverTimestamp, Timestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { computeDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
+import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
 
 const SETTINGS_ID = "global";
 const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
+
+// Matricule auto : plus grand matricule existant + 1 (min 101).
+export async function nextMatricule() {
+  const snap = await getDocs(collection(db, "employees"));
+  let max = 100;
+  snap.docs.forEach((d) => {
+    const m = parseInt(d.data().matricule, 10);
+    if (!isNaN(m) && m > max) max = m;
+  });
+  return String(max + 1);
+}
+
+// Recherche un salarié par matricule (badgeuse).
+export async function findByMatricule(matricule, siteId) {
+  const q = query(collection(db, "employees"), where("matricule", "==", String(matricule)));
+  const snap = await getDocs(q);
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((e) => e.active !== false && (!siteId || (e.siteId || "main") === siteId));
+  return list[0] || null;
+}
 
 // ---------- Réglages (globaux) ----------
 export async function getSettings() {
@@ -127,6 +147,35 @@ function hhmmToDate(date, hhmm) {
   const [Y, M, D] = date.split("-").map(Number);
   const [h, m] = hhmm.split(":").map(Number);
   return new Date(Y, M - 1, D, h, m, 0, 0);
+}
+
+// ---------- Cadres : saisie demi-journée ----------
+// half = "morning" | "afternoon" ; value = "present" | <leaveType>
+export async function setCadreHalfDay(empId, date, half, value, source = "badge", editedBy = null) {
+  const emp = await getEmployee(empId);
+  if (!emp) throw new Error("Salarié introuvable");
+  const siteId = emp.siteId || "main";
+  const ref = doc(db, "days", dayId(siteId, empId, date));
+  await setDoc(ref, {
+    siteId, employeeId: empId, date, category: "cadre",
+    [half]: value, source, editedBy,
+  }, { merge: true });
+  await recomputeCadreDay(empId, date);
+}
+
+export async function recomputeCadreDay(empId, date) {
+  const emp = await getEmployee(empId);
+  if (!emp) return;
+  const siteId = emp.siteId || "main";
+  const ref = doc(db, "days", dayId(siteId, empId, date));
+  const cur = (await getDoc(ref)).data() || {};
+  const m = computeCadreDay({ morning: cur.morning, afternoon: cur.afternoon }, emp, date);
+  await setDoc(ref, {
+    siteId, employeeId: empId, date, category: "cadre",
+    morning: m.morning, afternoon: m.afternoon,
+    dayFraction: m.dayFraction, status: m.status,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 export async function recomputeDay(empId, date, fromManual = false) {

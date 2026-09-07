@@ -37,7 +37,8 @@ export default function Page() {
     for (const m of all) {
       if (m.pin && await verifyManagerPin(pin, m.pin)) {
         setPinError(null); setShowPin(false);
-        setSession({ id: m.id, name: m.name, scope: m.scope, siteIds: m.siteIds || [] });
+        const role = m.role || (m.scope === "all" ? "admin" : "supervisor");
+        setSession({ id: m.id, name: m.name, role, siteIds: m.siteIds || [] });
         setTab("dashboard");
         return;
       }
@@ -49,15 +50,14 @@ export default function Page() {
     return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "var(--text-dim)" }}>Chargement…</div>;
   }
 
-  // Premier lancement : aucun manager -> créer le premier accès "tous magasins"
   if (managers.length === 0) {
     return <FirstRun onDone={() => {}} />;
   }
 
-  // Périmètre du manager connecté : null = tout, sinon liste d'IDs
-  const allowedSiteIds = session
-    ? (session.scope === "all" ? null : session.siteIds)
-    : null;
+  const role = session?.role;
+  const isAdmin = role === "admin";
+  const canEdit = isAdmin || role === "director"; // superviseur = lecture seule
+  const allowedSiteIds = (!session || isAdmin) ? null : session.siteIds;
 
   if (!session) {
     return (
@@ -82,11 +82,10 @@ export default function Page() {
     );
   }
 
-  const isAdmin = session.scope === "all";
   const tabs = [
     ["dashboard", "Tableau de bord"], ["recap", "Récaps & impression"],
-    ["employees", "Salariés"],
-    ...(isAdmin ? [["sites", "Magasins & accès"], ["settings", "Paramètres"]] : []),
+    ...(isAdmin ? [["employees", "Salariés"], ["sites", "Magasins & accès"], ["settings", "Paramètres"]] : []),
+    ...(role === "director" ? [["employees", "Salariés"]] : []),
   ];
 
   return (
@@ -109,9 +108,9 @@ export default function Page() {
         }}>← Badgeuse</button>
       </header>
 
-      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
+      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
       {tab === "recap" && <Recap employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
-      {tab === "employees" && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
+      {tab === "employees" && (isAdmin || role === "director") && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "sites" && isAdmin && <SitesManagers sites={sites} managers={managers} />}
       {tab === "settings" && isAdmin && <Settings />}
 
@@ -134,7 +133,7 @@ function FirstRun() {
     if (!isValidPin(pin)) { setErr("Le PIN doit faire 4 chiffres"); return; }
     if (pin !== confirm) { setErr("Les deux codes ne correspondent pas"); return; }
     setBusy(true);
-    await saveManager({ name: name.trim(), scope: "all", siteIds: [], pin: await hashManagerPin(pin) });
+    await saveManager({ name: name.trim(), role: "admin", scope: "all", siteIds: [], pin: await hashManagerPin(pin) });
     // le watcher managers se met à jour tout seul -> quitte l'écran FirstRun
   }
 

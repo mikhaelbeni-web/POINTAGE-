@@ -72,7 +72,13 @@ function SitesPanel({ sites }) {
 }
 
 // ---------------- Managers ----------------
-const blankMgr = () => ({ name: "", scope: "all", siteIds: [], newPin: "" });
+const blankMgr = () => ({ name: "", role: "director", siteIds: [], newPin: "" });
+
+const ROLE_LABEL = {
+  admin: "Admin (tout)",
+  supervisor: "Superviseur (consultation, plusieurs magasins)",
+  director: "Directeur (consultation + correction, 1 magasin)",
+};
 
 function ManagersPanel({ sites, managers }) {
   const [edit, setEdit] = useState(null);
@@ -83,11 +89,13 @@ function ManagersPanel({ sites, managers }) {
     if (!edit.name?.trim()) { setErr("Nom requis"); return; }
     if (edit.newPin && !isValidPin(edit.newPin)) { setErr("PIN = 4 chiffres"); return; }
     if (!edit.id && !edit.newPin) { setErr("PIN requis à la création"); return; }
-    if (edit.scope === "sites" && (edit.siteIds || []).length === 0) { setErr("Sélectionnez au moins un magasin"); return; }
+    if (edit.role === "director" && (edit.siteIds || []).length !== 1) { setErr("Le directeur gère exactement 1 magasin"); return; }
+    if (edit.role === "supervisor" && (edit.siteIds || []).length === 0) { setErr("Sélectionnez au moins un magasin"); return; }
     const mgr = {
-      id: edit.id, name: edit.name.trim(),
-      scope: edit.scope,
-      siteIds: edit.scope === "all" ? [] : edit.siteIds,
+      id: edit.id, name: edit.name.trim(), role: edit.role,
+      siteIds: edit.role === "admin" ? [] : edit.siteIds,
+      // compat : scope dérivé du rôle (admin = tout)
+      scope: edit.role === "admin" ? "all" : "sites",
     };
     if (edit.newPin) mgr.pin = await hashManagerPin(edit.newPin);
     await saveManager(mgr);
@@ -99,60 +107,64 @@ function ManagersPanel({ sites, managers }) {
   }
 
   const scopeText = (m) =>
-    m.scope === "all" ? "Tous les magasins"
+    (m.role === "admin" || m.scope === "all") ? "Tous les magasins"
       : (m.siteIds || []).map((id) => sites.find((s) => s.id === id)?.name || "?").join(", ") || "Aucun magasin";
+
+  const roleName = (m) => ROLE_LABEL[m.role] || (m.scope === "all" ? ROLE_LABEL.admin : ROLE_LABEL.supervisor);
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600 }}>Managers</h2>
-        <button onClick={() => setEdit(blankMgr())} style={btnPrimary}>+ Nouveau manager</button>
+        <h2 style={{ fontSize: 20, fontWeight: 600 }}>Accès managers</h2>
+        <button onClick={() => setEdit(blankMgr())} style={btnPrimary}>+ Nouvel accès</button>
       </div>
       <div style={{ display: "grid", gap: 8 }}>
         {managers.map((m) => (
           <div key={m.id} style={rowStyle}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600 }}>{m.name}</div>
-              <div style={{ fontSize: 13, color: "var(--text-dim)" }}>{scopeText(m)}</div>
+              <div style={{ fontSize: 13, color: "var(--text-dim)" }}>{roleName(m)} · {scopeText(m)}</div>
             </div>
-            <button onClick={() => setEdit({ ...m, newPin: "" })} style={btnGhost}>Modifier</button>
+            <button onClick={() => setEdit({ ...m, role: m.role || (m.scope === "all" ? "admin" : "supervisor"), newPin: "" })} style={btnGhost}>Modifier</button>
             <button onClick={() => remove(m)} style={{ ...btnGhost, color: "var(--red)" }}>Suppr.</button>
           </div>
         ))}
-        {managers.length === 0 && <p style={{ color: "var(--text-faint)" }}>Aucun manager. Créez au moins un accès « tous magasins » pour vous.</p>}
+        {managers.length === 0 && <p style={{ color: "var(--text-faint)" }}>Aucun accès. Créez au moins un admin pour vous.</p>}
       </div>
 
       {edit && (
-        <Modal title={edit.id ? "Modifier le manager" : "Nouveau manager"} onClose={() => setEdit(null)}>
+        <Modal title={edit.id ? "Modifier l'accès" : "Nouvel accès"} onClose={() => setEdit(null)}>
           <div style={{ display: "grid", gap: 14 }}>
             <Field label="Nom"><input style={inp} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ex. Recep" /></Field>
-            <Field label="Périmètre d'accès">
-              <select style={inp} value={edit.scope} onChange={(e) => setEdit({ ...edit, scope: e.target.value })}>
-                <option value="all">Tous les magasins</option>
-                <option value="sites">Magasins spécifiques</option>
+            <Field label="Rôle">
+              <select style={inp} value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value, siteIds: [] })}>
+                <option value="admin">Admin — accès total (magasins, salariés, paramètres)</option>
+                <option value="supervisor">Superviseur — consultation, plusieurs magasins</option>
+                <option value="director">Directeur — consultation + correction, 1 magasin</option>
               </select>
             </Field>
-            {edit.scope === "sites" && (
-              <Field label="Magasins autorisés">
+            {edit.role !== "admin" && (
+              <Field label={edit.role === "director" ? "Magasin géré (un seul)" : "Magasins autorisés"}>
                 <div style={{ display: "grid", gap: 6 }}>
                   {sites.map((s) => {
                     const on = (edit.siteIds || []).includes(s.id);
                     return (
-                      <button key={s.id} onClick={() => setEdit({
-                        ...edit,
-                        siteIds: on ? edit.siteIds.filter((x) => x !== s.id) : [...(edit.siteIds || []), s.id],
-                      })} style={{
+                      <button key={s.id} onClick={() => {
+                        if (edit.role === "director") setEdit({ ...edit, siteIds: [s.id] });
+                        else setEdit({ ...edit, siteIds: on ? edit.siteIds.filter((x) => x !== s.id) : [...(edit.siteIds || []), s.id] });
+                      }} style={{
                         padding: "10px 12px", borderRadius: 8, textAlign: "left", fontWeight: 500,
                         background: on ? "color-mix(in srgb, var(--brass) 20%, var(--ink-2))" : "var(--ink-2)",
-                        border: `1px solid ${on ? "var(--brass)" : "var(--line)"}`, color: "var(--text)",
-                      }}>{on ? "☑" : "☐"} {s.name}</button>
+                        border: `1px solid ${on ? "var(--brass)" : "var(--line)"}`, color: "var(--text)" }}>
+                        {on ? "☑" : "☐"} {s.name}
+                      </button>
                     );
                   })}
                   {sites.length === 0 && <span style={{ color: "var(--text-faint)", fontSize: 13 }}>Créez d'abord des magasins.</span>}
                 </div>
               </Field>
             )}
-            <Field label={edit.id ? "Nouveau PIN (si changement)" : "PIN 4 chiffres"} hint={edit.id ? "Laisser vide = garder l'actuel" : "Code de connexion de ce manager"}>
+            <Field label={edit.id ? "Nouveau PIN (si changement)" : "PIN 4 chiffres"} hint={edit.id ? "Laisser vide = garder l'actuel" : "Code de connexion"}>
               <input style={inp} inputMode="numeric" maxLength={4} value={edit.newPin}
                 onChange={(e) => setEdit({ ...edit, newPin: e.target.value.replace(/\D/g, "") })} placeholder="••••" />
             </Field>

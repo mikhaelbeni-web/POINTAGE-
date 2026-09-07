@@ -4,6 +4,7 @@ import { useState } from "react";
 export function StatusPill({ status, leaveType }) {
   const map = {
     present: ["Présent", "var(--green)"],
+    partial: ["Demi-journée", "var(--amber)"],
     incomplete: ["Badge incomplet", "var(--amber)"],
     absent: ["Absent", "var(--red)"],
     leave: [leaveLabel(leaveType), "var(--blue)"],

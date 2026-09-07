@@ -73,8 +73,10 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         </div>
       )}
 
-      {recaps && recaps.map(({ emp, weeks, totals }) => (
-        <RecapSheet key={emp.id} emp={emp} weeks={weeks} totals={totals} year={year} month={month} />
+      {recaps && recaps.map(({ emp, weeks, totals, cadre }) => (
+        cadre
+          ? <CadreSheet key={emp.id} emp={emp} weeks={weeks} totals={totals} year={year} month={month} />
+          : <RecapSheet key={emp.id} emp={emp} weeks={weeks} totals={totals} year={year} month={month} />
       ))}
       {recaps && recaps.length === 0 && <p style={{ color: "var(--text-dim)" }}>Aucun salarié sélectionné.</p>}
     </div>
@@ -174,3 +176,54 @@ function fmt(ts) {
 }
 const cellH = { padding: "5px 8px", borderBottom: "1px solid var(--line)", fontWeight: 500 };
 const cell = { padding: "5px 8px", borderBottom: "1px solid var(--ink-3)" };
+
+function CadreSheet({ emp, weeks, totals, year, month }) {
+  const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+  const half = (v) => v === "present" ? "Présent" : v ? leaveLabel(v) : "—";
+  return (
+    <div className="print-sheet" style={{ background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 22, marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700 }}>{emp.displayName}</h2>
+        <div style={{ color: "var(--text-dim)", fontSize: 15 }}>{MONTHS[month - 1]} {year}</div>
+      </div>
+      <div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 16 }}>Cadre · relevé par demi-journées</div>
+
+      {weeks.map((w) => (
+        <div key={w.weekKey} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--brass)", marginBottom: 6 }}>Semaine {w.weekKey.split("-W")[1]}</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
+                {["Date", "Matin", "Après-midi", "Jour"].map((h) => <th key={h} style={cellH}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {w.rows.map((r) => (
+                <tr key={r.date}>
+                  <td style={cell}>{new Date(r.date).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}</td>
+                  <td style={cell}>{half(r.morning)}</td>
+                  <td style={cell}>{half(r.afternoon)}</td>
+                  <td style={cell}>{r.fraction === 1 ? "1" : r.fraction === 0.5 ? "½" : "0"}</td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 600 }}>
+                <td style={cell} colSpan={3}>Jours présents (semaine)</td>
+                <td style={cell}>{w.daysPresent}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 8, padding: "12px 0", borderTop: "2px solid var(--line)", display: "flex", gap: 24, fontSize: 14 }}>
+        <div><div style={{ fontSize: 12, color: "var(--text-dim)" }}>Jours présents (mois)</div><div style={{ fontSize: 18, fontWeight: 700 }}>{totals.daysPresent}</div></div>
+        <div><div style={{ fontSize: 12, color: "var(--text-dim)" }}>Demi-journées absentes</div><div style={{ fontSize: 18, fontWeight: 700 }}>{totals.absences}</div></div>
+      </div>
+
+      <div style={{ marginTop: 30, display: "flex", justifyContent: "space-between", gap: 40 }}>
+        <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 40 }}>Signature du salarié</div><div style={{ borderTop: "1px solid var(--text-faint)" }} /></div>
+        <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 40 }}>Signature du manager</div><div style={{ borderTop: "1px solid var(--text-faint)" }} /></div>
+      </div>
+    </div>
+  );
+}

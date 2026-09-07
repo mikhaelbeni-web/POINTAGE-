@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Modal, Field, inp, btnPrimary, btnGhost } from "./Employees";
-import { setDayTimes, addLeave, getLeaves, deleteLeave, getDaysRange } from "../lib/store";
+import { setDayTimes, addLeave, getLeaves, deleteLeave, getDaysRange, setCadreHalfDay } from "../lib/store";
 import { leaveLabel, LEAVE_TYPES } from "./ui";
 import { minutesToHHhMM } from "../lib/timeLogic";
 
@@ -76,21 +76,25 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
   return (
     <Modal title={`${emp.displayName} — ${new Date(date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}`} onClose={onClose}>
       <div style={{ display: "grid", gap: 14 }}>
-        <p style={{ fontSize: 13, color: "var(--text-dim)" }}>
-          Correction manuelle des horaires. Laisser vide = non pointé. Recalcul automatique après enregistrement.
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Arrivée"><input type="time" style={inp} value={times.arrival} onChange={(e) => setTimes({ ...times, arrival: e.target.value })} /></Field>
-          <Field label="Départ pause"><input type="time" style={inp} value={times.breakOut} onChange={(e) => setTimes({ ...times, breakOut: e.target.value })} /></Field>
-          <Field label="Retour pause"><input type="time" style={inp} value={times.breakIn} onChange={(e) => setTimes({ ...times, breakIn: e.target.value })} /></Field>
-          <Field label="Départ"><input type="time" style={inp} value={times.departure} onChange={(e) => setTimes({ ...times, departure: e.target.value })} /></Field>
-        </div>
-
-        <LivePreview times={times} />
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-          <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "…" : "Enregistrer les horaires"}</button>
-        </div>
+        {emp.category === "cadre" ? (
+          <CadreEdit emp={emp} date={date} managerId={managerId} />
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: "var(--text-dim)" }}>
+              Correction manuelle des horaires. Laisser vide = non pointé. Recalcul automatique après enregistrement.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Arrivée"><input type="time" style={inp} value={times.arrival} onChange={(e) => setTimes({ ...times, arrival: e.target.value })} /></Field>
+              <Field label="Départ pause"><input type="time" style={inp} value={times.breakOut} onChange={(e) => setTimes({ ...times, breakOut: e.target.value })} /></Field>
+              <Field label="Retour pause"><input type="time" style={inp} value={times.breakIn} onChange={(e) => setTimes({ ...times, breakIn: e.target.value })} /></Field>
+              <Field label="Départ"><input type="time" style={inp} value={times.departure} onChange={(e) => setTimes({ ...times, departure: e.target.value })} /></Field>
+            </div>
+            <LivePreview times={times} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "…" : "Enregistrer les horaires"}</button>
+            </div>
+          </>
+        )}
 
         <hr style={{ border: "none", borderTop: "1px solid var(--line)", margin: "4px 0" }} />
 
@@ -118,4 +122,51 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
       </div>
     </Modal>
   );
+}
+
+function CadreEdit({ emp, date, managerId }) {
+  const [day, setDay] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getDaysRange(emp.id, date, date).then((ds) => setDay(ds[0] || { morning: null, afternoon: null }));
+  }, [emp.id, date]);
+
+  async function set(half, value) {
+    await setCadreHalfDay(emp.id, date, half, value, "manual", managerId);
+    const ds = await getDaysRange(emp.id, date, date);
+    setDay(ds[0] || {});
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (!day) return <p style={{ color: "var(--text-dim)" }}>Chargement…</p>;
+
+  const Row = ({ half, label }) => (
+    <div>
+      <div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button onClick={() => set(half, "present")} style={chip(day[half] === "present", "var(--green)")}>Présent</button>
+        {LEAVE_TYPES.map(([k, lab]) => (
+          <button key={k} onClick={() => set(half, k)} style={chip(day[half] === k, "var(--blue)")}>{lab}</button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <p style={{ fontSize: 13, color: "var(--text-dim)" }}>Cadre — déclaration par demi-journée. Enregistrement immédiat.</p>
+      <Row half="morning" label="Matin" />
+      <Row half="afternoon" label="Après-midi" />
+      {saved && <p style={{ color: "var(--green)", fontSize: 13 }}>✓ Enregistré</p>}
+    </div>
+  );
+}
+
+function chip(active, color) {
+  return {
+    padding: "8px 12px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+    background: active ? `color-mix(in srgb, ${color} 22%, var(--ink-2))` : "var(--ink-2)",
+    border: `1px solid ${active ? color : "var(--line)"}`, color: "var(--text)",
+  };
 }

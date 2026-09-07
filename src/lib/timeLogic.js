@@ -125,6 +125,25 @@ export function computeDay(p, emp, settings, dateStr) {
   return { workedMinutes, breakMinutes, spanMinutes, spanViolation, lateMinutes, status, worksToday };
 }
 
+// --- Journée d'un CADRE : demi-journées, pas d'heures ---------
+// morning / afternoon : "present" | <leaveType> | null (non saisi)
+export function computeCadreDay(halfDays, emp, dateStr) {
+  const worksToday = (emp.workDays || []).includes(isoWeekday(dateStr));
+  const m = halfDays.morning || null;
+  const a = halfDays.afternoon || null;
+
+  const presentCount = (m === "present" ? 1 : 0) + (a === "present" ? 1 : 0);
+  const dayFraction = presentCount * 0.5; // 0, 0.5 ou 1 jour présent
+
+  let status;
+  if (m == null && a == null) status = worksToday ? "absent" : "off";
+  else if (presentCount === 2) status = "present";
+  else if (presentCount === 1) status = "partial";
+  else status = "leave"; // les deux demi-journées ont un motif d'absence
+
+  return { morning: m, afternoon: a, dayFraction, status, worksToday };
+}
+
 // --- Alerte repos minimum entre deux jours ------------------
 
 /** restViolation si repos entre départ(J-1) et arrivée(J) < seuil. */
