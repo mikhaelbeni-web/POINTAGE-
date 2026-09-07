@@ -20,7 +20,12 @@ function SitesPanel({ sites }) {
 
   async function save() {
     if (!edit.name?.trim()) { setErr("Nom requis"); return; }
-    await saveSite(edit);
+    const code = (edit.code || "").trim();
+    if (code) {
+      const clash = sites.find((s) => (s.code || "").trim() === code && s.id !== edit.id);
+      if (clash) { setErr(`Ce code est déjà utilisé par un autre magasin (${clash.name}). Chaque magasin doit avoir un code différent.`); return; }
+    }
+    await saveSite({ ...edit, code });
     setEdit(null); setErr(null);
   }
   async function remove(s) {

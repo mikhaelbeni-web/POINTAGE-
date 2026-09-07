@@ -60,11 +60,6 @@ export default function Badgeuse({ employees, sites }) {
     return () => unsub();
   }, []);
 
-  function chooseSite(id) {
-    localStorage.setItem(TABLET_SITE_KEY, id);
-    localStorage.removeItem(TABLET_UNLOCK_KEY);
-    setUnlockedCode(null); setTabletSite(id);
-  }
 
   async function identify() {
     setError(null);
@@ -92,61 +87,46 @@ export default function Badgeuse({ employees, sites }) {
 
   if (!ready) return null;
 
-  // 1. Choix magasin (une fois par tablette)
-  if (!tabletSite || !sites.find((s) => s.id === tabletSite)) {
-    return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-        <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Magasin de cette tablette</h1>
-          <p style={{ color: "var(--text-dim)", marginBottom: 24 }}>Réglage mémorisé sur cet appareil.</p>
-          {sites.length === 0 ? (
-            <p style={{ color: "var(--text-faint)" }}>Aucun magasin créé. Un responsable doit d'abord en créer un.</p>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {sites.map((s) => (
-                <button key={s.id} onClick={() => chooseSite(s.id)} style={{
-                  padding: "16px", borderRadius: 12, fontSize: 18, fontWeight: 600,
-                  background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)",
-                }}>{s.name}</button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  // Écran unique : entrer le code. Le code identifie le magasin.
+  // AUCUN nom de magasin n'est affiché. Un appareil sans code valide ne peut rien faire.
+  const activeSite = tabletSite ? sites.find((s) => s.id === tabletSite) : null;
+  const isSetUp = activeSite && (!activeSite.code || unlockedCode === activeSite.code);
+
+  function submitSetupCode() {
+    const entered = codeInput.trim();
+    if (!entered) return;
+    const match = sites.find((s) => (s.code || "") === entered && entered !== "");
+    if (!match) { setCodeError("Code incorrect"); return; }
+    localStorage.setItem(TABLET_SITE_KEY, match.id);
+    localStorage.setItem(TABLET_UNLOCK_KEY, match.code);
+    setTabletSite(match.id);
+    setUnlockedCode(match.code);
+    setCodeError(null); setCodeInput("");
   }
 
-  const currentSite = sites.find((s) => s.id === tabletSite);
-  const siteName = currentSite?.name || "";
-  const siteCode = currentSite?.code || "";
-  const isUnlocked = !siteCode || unlockedCode === siteCode;
-
-  function submitCode() {
-    if (codeInput.trim() === siteCode) {
-      localStorage.setItem(TABLET_UNLOCK_KEY, siteCode);
-      setUnlockedCode(siteCode); setCodeError(null); setCodeInput("");
-    } else setCodeError("Code du magasin incorrect");
-  }
-
-  // 2. Déverrouillage magasin
-  if (!isUnlocked) {
+  if (!isSetUp) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+        <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Déverrouiller la tablette</h1>
-          <p style={{ color: "var(--text-dim)", fontSize: 14, marginBottom: 4 }}>{siteName}</p>
-          <p style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 20 }}>Code réservé au responsable. À saisir une seule fois.</p>
+          <p style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 22 }}>
+            Code réservé au responsable. À saisir une seule fois sur cette tablette.
+          </p>
           <input style={{ width: "100%", padding: "14px", borderRadius: 10, fontSize: 18, textAlign: "center",
             background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", letterSpacing: 2 }}
             value={codeInput} onChange={(e) => setCodeInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitCode()} placeholder="Code magasin" autoFocus />
+            onKeyDown={(e) => e.key === "Enter" && submitSetupCode()} placeholder="Code" autoFocus />
           {codeError && <p style={{ color: "var(--red)", fontSize: 14, marginTop: 12 }}>{codeError}</p>}
-          <button onClick={submitCode} style={{ marginTop: 16, width: "100%", padding: "14px", borderRadius: 10,
+          <button onClick={submitSetupCode} style={{ marginTop: 16, width: "100%", padding: "14px", borderRadius: 10,
             fontSize: 16, fontWeight: 600, background: "var(--brass)", color: "#1a1204", border: "none" }}>Déverrouiller</button>
         </div>
       </div>
     );
   }
+
+  const currentSite = activeSite;
+  const siteName = currentSite?.name || "";
+  const isUnlocked = true; // déverrouillage géré par l'écran code unique ci-dessus
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "24px 20px 40px" }}>
