@@ -37,7 +37,12 @@ function SitesPanel({ sites }) {
       <div style={{ display: "grid", gap: 8 }}>
         {sites.map((s) => (
           <div key={s.id} style={rowStyle}>
-            <div style={{ flex: 1, fontWeight: 600 }}>{s.name}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600 }}>{s.name}</div>
+              <div style={{ fontSize: 13, color: "var(--text-dim)" }}>
+                Code tablette : <strong style={{ color: "var(--brass)", letterSpacing: 1 }}>{s.code || "— non défini —"}</strong>
+              </div>
+            </div>
             <button onClick={() => setEdit({ ...s })} style={btnGhost}>Modifier</button>
             <button onClick={() => remove(s)} style={{ ...btnGhost, color: "var(--red)" }}>Suppr.</button>
           </div>
@@ -50,6 +55,9 @@ function SitesPanel({ sites }) {
           <div style={{ display: "grid", gap: 14 }}>
             <Field label="Nom du magasin">
               <input style={inp} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ex. Magasin République" />
+            </Field>
+            <Field label="Code tablette" hint="Saisi UNE fois par le responsable pour déverrouiller la tablette du magasin. Empêche le badgeage depuis un autre appareil. Visible de tous les admins.">
+              <input style={inp} value={edit.code || ""} onChange={(e) => setEdit({ ...edit, code: e.target.value })} placeholder="Ex. REP-4821" />
             </Field>
             {err && <p style={{ color: "var(--red)", fontSize: 14 }}>{err}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>

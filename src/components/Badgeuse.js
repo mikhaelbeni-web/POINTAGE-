@@ -7,6 +7,7 @@ import { minutesToHHhMM } from "../lib/timeLogic";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const TABLET_SITE_KEY = "pointage_tablet_site";
+const TABLET_UNLOCK_KEY = "pointage_tablet_unlock"; // code validé mémorisé sur l'appareil
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
@@ -43,14 +44,18 @@ function nextActions(day) {
 
 export default function Badgeuse({ employees, sites }) {
   const [tabletSite, setTabletSite] = useState(null);
+  const [unlockedCode, setUnlockedCode] = useState(null);
   const [ready, setReady] = useState(false);
   const [days, setDays] = useState({});
   const [selected, setSelected] = useState(null);
   const [pinError, setPinError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [codeInput, setCodeInput] = useState("");
+  const [codeError, setCodeError] = useState(null);
 
   useEffect(() => {
     setTabletSite(localStorage.getItem(TABLET_SITE_KEY));
+    setUnlockedCode(localStorage.getItem(TABLET_UNLOCK_KEY));
     setReady(true);
   }, []);
 
@@ -65,6 +70,8 @@ export default function Badgeuse({ employees, sites }) {
 
   function chooseSite(id) {
     localStorage.setItem(TABLET_SITE_KEY, id);
+    localStorage.removeItem(TABLET_UNLOCK_KEY);
+    setUnlockedCode(null);
     setTabletSite(id);
   }
 
@@ -116,7 +123,52 @@ export default function Badgeuse({ employees, sites }) {
     );
   }
 
-  const siteName = sites.find((s) => s.id === tabletSite)?.name || "";
+  const currentSite = sites.find((s) => s.id === tabletSite);
+  const siteName = currentSite?.name || "";
+
+  // Porte de déverrouillage : si le magasin a un code, la tablette doit l'avoir validé.
+  // Empêche de badger depuis un appareil non déverrouillé (ex. domicile d'un salarié).
+  const siteCode = currentSite?.code || "";
+  const isUnlocked = !siteCode || unlockedCode === siteCode;
+
+  function submitCode() {
+    if (codeInput.trim() === siteCode) {
+      localStorage.setItem(TABLET_UNLOCK_KEY, siteCode);
+      setUnlockedCode(siteCode);
+      setCodeError(null); setCodeInput("");
+    } else {
+      setCodeError("Code du magasin incorrect");
+    }
+  }
+
+  if (!isUnlocked) {
+    return (
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Déverrouiller la tablette</h1>
+          <p style={{ color: "var(--text-dim)", fontSize: 14, marginBottom: 4 }}>{siteName}</p>
+          <p style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 20 }}>
+            Code réservé au responsable. À saisir une seule fois sur la tablette du magasin.
+          </p>
+          <input style={{
+            width: "100%", padding: "14px", borderRadius: 10, fontSize: 18, textAlign: "center",
+            background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", letterSpacing: 2,
+          }} value={codeInput} onChange={(e) => setCodeInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitCode()} placeholder="Code magasin" autoFocus />
+          {codeError && <p style={{ color: "var(--red)", fontSize: 14, marginTop: 12 }}>{codeError}</p>}
+          <button onClick={submitCode} style={{
+            marginTop: 16, width: "100%", padding: "14px", borderRadius: 10, fontSize: 16, fontWeight: 600,
+            background: "var(--brass)", color: "#1a1204", border: "none",
+          }}>Déverrouiller</button>
+          <button onClick={() => { localStorage.removeItem(TABLET_SITE_KEY); setTabletSite(null); }}
+            style={{ marginTop: 14, color: "var(--text-faint)", fontSize: 13, textDecoration: "underline" }}>
+            Changer de magasin
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const active = employees.filter((e) => e.active !== false && (e.siteId || "main") === tabletSite);
 
   return (
