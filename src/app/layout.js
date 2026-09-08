@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Pointage RLB",
+  title: "Pointage G20",
   description: "Badgeuse et suivi des heures",
 };
 
