@@ -14,6 +14,29 @@ import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./time
 const SETTINGS_ID = "global";
 const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
 
+// ---------- Suivi des tablettes (heartbeat) ----------
+// Chaque tablette écrit régulièrement un "battement" dans tablets/{tabletId}.
+// L'admin déduit l'état en ligne/hors ligne d'après l'ancienneté du dernier battement.
+export async function sendHeartbeat(tabletId, siteId, meta = {}) {
+  try {
+    await setDoc(doc(db, "tablets", tabletId), {
+      tabletId, siteId: siteId || null,
+      lastSeen: serverTimestamp(),
+      ...meta, // ex. { pendingHint } — indicatif
+    }, { merge: true });
+  } catch (_) { /* hors ligne : le battement partira au retour du réseau */ }
+}
+
+export function watchTablets(cb) {
+  return onSnapshot(collection(db, "tablets"), (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+}
+
+export async function deleteTablet(tabletId) {
+  await deleteDoc(doc(db, "tablets", tabletId));
+}
+
 // Matricule auto : plus grand matricule existant + 1 (min 101).
 export async function nextMatricule() {
   const snap = await getDocs(collection(db, "employees"));

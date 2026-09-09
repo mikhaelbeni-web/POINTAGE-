@@ -13,6 +13,7 @@ import Settings from "../components/Settings";
 import Recap from "../components/Recap";
 import DayEditor from "../components/DayEditor";
 import SitesManagers from "../components/SitesManagers";
+import Tablets from "../components/Tablets";
 
 export default function Page() {
   const [employees, setEmployees] = useState([]);
@@ -84,7 +85,7 @@ export default function Page() {
 
   const tabs = [
     ["dashboard", "Tableau de bord"], ["recap", "Récaps & impression"],
-    ...(isAdmin ? [["employees", "Salariés"], ["sites", "Magasins & accès"], ["settings", "Paramètres"]] : []),
+    ...(isAdmin ? [["employees", "Salariés"], ["sites", "Magasins & accès"], ["tablets", "État des tablettes"], ["settings", "Paramètres"]] : []),
     ...(role === "director" ? [["employees", "Salariés"]] : []),
   ];
 
@@ -124,6 +125,7 @@ export default function Page() {
       {tab === "recap" && <Recap employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "employees" && (isAdmin || role === "director") && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "sites" && isAdmin && <SitesManagers sites={sites} managers={managers} employees={employees} />}
+      {tab === "tablets" && isAdmin && <Tablets sites={sites} />}
       {tab === "settings" && isAdmin && <Settings />}
 
       {editDay && (
