@@ -20,7 +20,11 @@ const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
 // contrairement à serverTimestamp qui est différé par le cache hors-ligne).
 export async function sendHeartbeat(tabletId, siteId, meta = {}) {
   try {
-    await setDoc(doc(db, "tablets", tabletId), {
+    // ID du doc = tablette + magasin. Ainsi deux magasins produisent
+    // TOUJOURS deux documents distincts, même si deux appareils partagent
+    // le même tabletId (ex. localStorage synchronisé entre navigateurs).
+    const docKey = `${tabletId}__${siteId || "none"}`;
+    await setDoc(doc(db, "tablets", docKey), {
       tabletId, siteId: siteId || null,
       lastSeen: serverTimestamp(),
       lastSeenMs: Date.now(),

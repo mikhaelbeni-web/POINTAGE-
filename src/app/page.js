@@ -23,7 +23,10 @@ function getTabletId() {
   if (typeof window === "undefined") return null;
   let id = localStorage.getItem(TABLET_ID_KEY);
   if (!id) {
-    id = "tab_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    const rnd = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    id = "tab_" + rnd;
     localStorage.setItem(TABLET_ID_KEY, id);
   }
   return id;
