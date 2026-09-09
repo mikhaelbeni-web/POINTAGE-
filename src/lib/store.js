@@ -25,12 +25,13 @@ export async function nextMatricule() {
   return String(max + 1);
 }
 
-// Recherche un salarié par matricule (badgeuse).
-export async function findByMatricule(matricule, siteId) {
+// Recherche un salarié par matricule (badgeuse). Recherche GLOBALE :
+// le matricule badge sur n'importe quelle tablette, quel que soit son magasin
+// de rattachement. Le magasin du pointage sera celui de la tablette.
+export async function findByMatricule(matricule) {
   const q = query(collection(db, "employees"), where("matricule", "==", String(matricule)));
   const snap = await getDocs(q);
-  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((e) => e.active !== false && (!siteId || (e.siteId || "main") === siteId));
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((e) => e.active !== false);
   return list[0] || null;
 }
 
@@ -154,16 +155,19 @@ async function getEmployee(empId) {
 }
 
 // ---------- Badges (punches) ----------
-export async function addPunch(empId, date, type, source = "badge", editedBy = null, at = new Date()) {
+// punchSiteId = magasin de la tablette où le badge a lieu (peut différer
+// du magasin de rattachement du salarié). C'est le magasin RÉEL du pointage.
+export async function addPunch(empId, date, type, source = "badge", editedBy = null, at = new Date(), punchSiteId = null) {
   const emp = await getEmployee(empId);
   if (!emp) throw new Error("Salarié introuvable");
+  const siteId = punchSiteId || emp.siteId || "main";
   const id = doc(collection(db, "punches")).id;
   await setDoc(doc(db, "punches", id), {
-    siteId: emp.siteId || "main", employeeId: empId, date, type,
+    siteId, employeeId: empId, date, type,
     at: Timestamp.fromDate(at instanceof Date ? at : new Date(at)),
     source, editedBy, createdAt: serverTimestamp(),
   });
-  await recomputeDay(empId, date);
+  await recomputeDay(empId, date, false, siteId);
   return id;
 }
 
@@ -192,44 +196,46 @@ function hhmmToDate(date, hhmm) {
 
 // ---------- Cadres : saisie demi-journée ----------
 // half = "morning" | "afternoon" ; value = "present" | <leaveType>
-export async function setCadreHalfDay(empId, date, half, value, source = "badge", editedBy = null) {
+// punchSiteId = magasin de la tablette (magasin réel du pointage)
+export async function setCadreHalfDay(empId, date, half, value, source = "badge", editedBy = null, punchSiteId = null) {
   const emp = await getEmployee(empId);
   if (!emp) throw new Error("Salarié introuvable");
-  const siteId = emp.siteId || "main";
+  const siteId = punchSiteId || emp.siteId || "main";
   const ref = doc(db, "days", dayId(siteId, empId, date));
   await setDoc(ref, {
     siteId, employeeId: empId, date, category: "cadre",
     [half]: value, source, editedBy,
   }, { merge: true });
-  await recomputeCadreDay(empId, date);
+  await recomputeCadreDay(empId, date, siteId);
 }
 
-export async function recomputeCadreDay(empId, date) {
+export async function recomputeCadreDay(empId, date, siteId = null) {
   const emp = await getEmployee(empId);
   if (!emp) return;
-  const siteId = emp.siteId || "main";
-  const ref = doc(db, "days", dayId(siteId, empId, date));
+  const sid = siteId || emp.siteId || "main";
+  const ref = doc(db, "days", dayId(sid, empId, date));
   const cur = (await getDoc(ref)).data() || {};
   const m = computeCadreDay({ morning: cur.morning, afternoon: cur.afternoon }, emp, date);
   await setDoc(ref, {
-    siteId, employeeId: empId, date, category: "cadre",
+    siteId: sid, employeeId: empId, date, category: "cadre",
     morning: m.morning, afternoon: m.afternoon,
     dayFraction: m.dayFraction, status: m.status,
     updatedAt: serverTimestamp(),
   }, { merge: true });
 }
 
-export async function recomputeDay(empId, date, fromManual = false) {
+export async function recomputeDay(empId, date, fromManual = false, punchSiteId = null) {
   const emp = await getEmployee(empId);
   if (!emp) return;
-  const siteId = emp.siteId || "main";
   const settings = await getSettings();
-  const ref = doc(db, "days", dayId(siteId, empId, date));
 
   let times = { arrival: null, breakOut: null, breakIn: null, departure: null };
+  let siteId = punchSiteId || emp.siteId || "main";
 
   if (fromManual) {
-    const cur = (await getDoc(ref)).data() || {};
+    // Correction manager : on lit le jour déjà ciblé (siteId fourni).
+    const ref0 = doc(db, "days", dayId(siteId, empId, date));
+    const cur = (await getDoc(ref0)).data() || {};
     times = {
       arrival: cur.arrival || null, breakOut: cur.breakOut || null,
       breakIn: cur.breakIn || null, departure: cur.departure || null,
@@ -244,6 +250,8 @@ export async function recomputeDay(empId, date, fromManual = false) {
     const byType = {};
     snap.docs.forEach((d) => {
       const p = d.data();
+      // le magasin du pointage = celui des badges du jour
+      if (p.siteId) siteId = p.siteId;
       if (!byType[p.type] || p.at.toMillis() > byType[p.type].toMillis()) byType[p.type] = p.at;
     });
     times = {
@@ -252,6 +260,7 @@ export async function recomputeDay(empId, date, fromManual = false) {
     };
   }
 
+  const ref = doc(db, "days", dayId(siteId, empId, date));
   const m = computeDay(times, emp, settings, date);
 
   const prev = new Date(date); prev.setDate(prev.getDate() - 1);

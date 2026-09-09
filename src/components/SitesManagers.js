@@ -97,41 +97,14 @@ function ManagersPanel({ sites, managers, employees = [] }) {
     if (edit.role === "director" && (edit.siteIds || []).length !== 1) { setErr("Le directeur gère exactement 1 magasin"); return; }
     if (edit.role === "supervisor" && (edit.siteIds || []).length === 0) { setErr("Sélectionnez au moins un magasin"); return; }
 
-    // Directeur : il badge comme un cadre -> matricule requis, fiche salarié auto.
-    let mat = String(edit.matricule || "").trim();
-    if (edit.role === "director") {
-      if (!mat) { setErr("Matricule requis (le directeur badge comme un cadre)"); return; }
-      const clash = employees.find((e) => String(e.matricule) === mat && e.id !== edit.linkedEmployeeId);
-      if (clash) { setErr("Ce matricule est déjà utilisé."); return; }
-    }
-
     const mgr = {
       id: edit.id, name: edit.name.trim(), role: edit.role,
       siteIds: edit.role === "admin" ? [] : edit.siteIds,
       scope: edit.role === "admin" ? "all" : "sites",
-      linkedEmployeeId: edit.linkedEmployeeId || null,
     };
     if (edit.newPin) mgr.pin = await hashManagerPin(edit.newPin);
 
     try {
-      // 1. Fiche salarié cadre du directeur (créée ou mise à jour)
-      if (edit.role === "director") {
-        const [firstName, ...rest] = edit.name.trim().split(" ");
-        const empPayload = {
-          id: edit.linkedEmployeeId || undefined,
-          firstName: firstName || edit.name.trim(),
-          lastName: rest.join(" ") || "(direction)",
-          displayName: edit.name.trim(),
-          siteId: edit.siteIds[0],
-          category: "cadre",
-          matricule: mat,
-          workDays: [1, 2, 3, 4, 5],
-          active: true,
-          isDirector: true,
-        };
-        const empId = await saveEmployee(empPayload);
-        mgr.linkedEmployeeId = empId;
-      }
       await saveManager(mgr);
       setEdit(null);
     } catch (e) {
@@ -139,8 +112,7 @@ function ManagersPanel({ sites, managers, employees = [] }) {
     }
   }
   async function remove(m) {
-    if (!confirm(`Supprimer le manager "${m.name}" ?${m.linkedEmployeeId ? " Sa fiche de pointage sera aussi supprimée." : ""}`)) return;
-    if (m.linkedEmployeeId) { try { await deleteEmployee(m.linkedEmployeeId); } catch (_) {} }
+    if (!confirm(`Supprimer le manager "${m.name}" ?`)) return;
     await deleteManager(m.id);
   }
 
@@ -165,8 +137,7 @@ function ManagersPanel({ sites, managers, employees = [] }) {
             </div>
             <button onClick={() => {
               const role = m.role || (m.scope === "all" ? "admin" : "supervisor");
-              const linkedEmp = m.linkedEmployeeId ? employees.find((e) => e.id === m.linkedEmployeeId) : null;
-              setEdit({ ...m, role, newPin: "", matricule: linkedEmp?.matricule || "" });
+              setEdit({ ...m, role, newPin: "" });
             }} style={btnGhost}>Modifier</button>
             <button onClick={() => remove(m)} style={{ ...btnGhost, color: "var(--red)" }}>Suppr.</button>
           </div>
@@ -204,12 +175,6 @@ function ManagersPanel({ sites, managers, employees = [] }) {
                   })}
                   {sites.length === 0 && <span style={{ color: "var(--text-faint)", fontSize: 13 }}>Créez d'abord des magasins.</span>}
                 </div>
-              </Field>
-            )}
-            {edit.role === "director" && (
-              <Field label="Matricule pour badger" hint="Le directeur pointe matin/après-midi comme un cadre. Ce code lui sert à badger sur la tablette.">
-                <input style={inp} inputMode="numeric" value={edit.matricule || ""}
-                  onChange={(e) => setEdit({ ...edit, matricule: e.target.value.replace(/\D/g, "") })} placeholder="Ex. 150" />
               </Field>
             )}
             <Field label={edit.id ? "Nouveau PIN (si changement)" : "PIN 4 chiffres"} hint={edit.id ? "Laisser vide = garder l'actuel" : "Code de connexion"}>

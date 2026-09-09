@@ -110,7 +110,7 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Field label="Catégorie" hint="Cadre = pointage matin/après-midi (pas d'heures)">
-                <select style={inp} value={edit.category} onChange={(ev) => setEdit({ ...edit, category: ev.target.value })}>
+                <select style={inp} value={edit.category || "employee"} onChange={(ev) => setEdit({ ...edit, category: ev.target.value })}>
                   <option value="employee">Employé (pointage horaire)</option>
                   <option value="cadre">Cadre (demi-journées)</option>
                 </select>
@@ -128,7 +128,7 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
               </Field>
             </div>
 
-            {edit.category === "employee" && (
+            {(edit.category || "employee") === "employee" && (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <Field label="Type de contrat">

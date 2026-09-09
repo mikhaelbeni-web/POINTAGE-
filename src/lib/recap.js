@@ -67,6 +67,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
       date, status, worked, late, restViolation, leaveType: leave || null,
       arrival: d?.arrival || null, departure: d?.departure || null,
       breakMinutes: d?.breakMinutes || 0,
+      siteId: d?.siteId || null,
     });
     weeksMap[wk].workedMinutes += worked;
   }
@@ -133,7 +134,7 @@ export function buildCadreRecap(emp, days, leaves, year, month) {
     else if (presentHalves === 1) status = "partial";
     else status = "leave";
 
-    weeksMap[wk].rows.push({ date, morning, afternoon, fraction, status });
+    weeksMap[wk].rows.push({ date, morning, afternoon, fraction, status, siteId: d?.siteId || null });
     weeksMap[wk].daysPresent += fraction;
   }
 

@@ -64,14 +64,14 @@ export default function Badgeuse({ employees, sites }) {
   async function identify() {
     setError(null);
     if (!matricule) return;
-    const emp = await findByMatricule(matricule, tabletSite);
-    if (!emp) { setError("Matricule inconnu pour ce magasin"); setMatricule(""); return; }
+    const emp = await findByMatricule(matricule);
+    if (!emp) { setError("Matricule inconnu"); setMatricule(""); return; }
     setCurrent(emp); setMatricule("");
   }
 
   async function doPunch(type, label) {
     try {
-      await addPunch(current.id, todayStr(), type, "badge");
+      await addPunch(current.id, todayStr(), type, "badge", null, new Date(), tabletSite);
       setToast(`${label} — ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
     } catch (e) { setToast("Erreur : " + e.message); }
     setCurrent(null); setTimeout(() => setToast(null), 3500);
@@ -79,7 +79,7 @@ export default function Badgeuse({ employees, sites }) {
 
   async function doHalfDay(half, value, label) {
     try {
-      await setCadreHalfDay(current.id, todayStr(), half, value, "badge");
+      await setCadreHalfDay(current.id, todayStr(), half, value, "badge", null, tabletSite);
       setToast(`${label} enregistré`);
     } catch (e) { setToast("Erreur : " + e.message); }
     setCurrent(null); setTimeout(() => setToast(null), 3500);
