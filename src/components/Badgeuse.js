@@ -9,7 +9,6 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_UNLOCK_KEY = "pointage_tablet_unlock";
 const TABLET_ID_KEY = "pointage_tablet_id";
-const TABLET_NAME_KEY = "pointage_tablet_name";
 
 function getTabletId() {
   if (typeof window === "undefined") return null;
@@ -59,13 +58,10 @@ export default function Badgeuse({ employees, sites }) {
   const [error, setError] = useState(null);
   const [codeInput, setCodeInput] = useState("");
   const [codeError, setCodeError] = useState(null);
-  const [tabletName, setTabletName] = useState(null);
-  const [nameInput, setNameInput] = useState("");
 
   useEffect(() => {
     setTabletSite(localStorage.getItem(TABLET_SITE_KEY));
     setUnlockedCode(localStorage.getItem(TABLET_UNLOCK_KEY));
-    setTabletName(localStorage.getItem(TABLET_NAME_KEY));
     setReady(true);
   }, []);
 
@@ -83,7 +79,6 @@ export default function Badgeuse({ employees, sites }) {
     const info = getDeviceInfo();
     const beat = () => sendHeartbeat(tabletId, tabletSite, {
       siteName: sites.find((s) => s.id === tabletSite)?.name || null,
-      deviceName: localStorage.getItem(TABLET_NAME_KEY) || null,
       model: info.model || null,
       os: info.os || null,
       browser: info.browser || null,
@@ -93,7 +88,7 @@ export default function Badgeuse({ employees, sites }) {
     beat();
     const iv = setInterval(beat, 2 * 60 * 1000);
     return () => clearInterval(iv);
-  }, [tabletSite, sites, tabletName]);
+  }, [tabletSite, sites]);
 
 
   async function identify() {
@@ -154,38 +149,6 @@ export default function Badgeuse({ employees, sites }) {
           {codeError && <p style={{ color: "var(--red)", fontSize: 14, marginTop: 12 }}>{codeError}</p>}
           <button onClick={submitSetupCode} style={{ marginTop: 16, width: "100%", padding: "14px", borderRadius: 10,
             fontSize: 16, fontWeight: 600, background: "var(--brass)", color: "#1a1204", border: "none" }}>Déverrouiller</button>
-        </div>
-      </div>
-    );
-  }
-
-  function submitName() {
-    const n = nameInput.trim();
-    if (!n) return;
-    localStorage.setItem(TABLET_NAME_KEY, n);
-    setTabletName(n);
-    setNameInput("");
-  }
-
-  // Nommer la tablette (une fois) — sert à l'identifier dans l'onglet admin.
-  if (!tabletName) {
-    const info = getDeviceInfo();
-    return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-        <div style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Nommer cette tablette</h1>
-          <p style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 8 }}>
-            Ce nom permet de reconnaître la tablette dans le suivi (ex. « Accueil RDC », « Comptoir 2 »).
-          </p>
-          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
-            Détecté : {[info.model, info.os, info.browser].filter(Boolean).join(" · ") || "appareil"}
-          </p>
-          <input style={{ width: "100%", padding: "14px", borderRadius: 10, fontSize: 17, textAlign: "center",
-            background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)" }}
-            value={nameInput} onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitName()} placeholder="Nom de la tablette" autoFocus />
-          <button onClick={submitName} style={{ marginTop: 16, width: "100%", padding: "14px", borderRadius: 10,
-            fontSize: 16, fontWeight: 600, background: "var(--brass)", color: "#1a1204", border: "none" }}>Valider</button>
         </div>
       </div>
     );

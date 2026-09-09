@@ -108,7 +108,6 @@ export default function Page() {
             if (confirm("Changer le magasin de CETTE tablette ? La badgeuse redemandera le magasin et son code.")) {
               localStorage.removeItem("pointage_tablet_site");
               localStorage.removeItem("pointage_tablet_unlock");
-              localStorage.removeItem("pointage_tablet_name");
               setSession(null);
             }
           }} style={{
