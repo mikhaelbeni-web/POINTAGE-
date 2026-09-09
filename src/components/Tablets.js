@@ -2,9 +2,8 @@
 import { useEffect, useState } from "react";
 import { watchTablets, deleteTablet } from "../lib/store";
 
-// Seuil : sans battement depuis plus de 6 min -> considérée hors ligne.
-// (battement toutes les 2 min ; on tolère 3 cycles manqués)
-const OFFLINE_AFTER_MS = 6 * 60 * 1000;
+// Battement chaque minute ; sans signal depuis plus de 4 min -> hors ligne.
+const OFFLINE_AFTER_MS = 4 * 60 * 1000;
 
 export default function Tablets({ sites = [] }) {
   const [tablets, setTablets] = useState([]);
@@ -19,6 +18,7 @@ export default function Tablets({ sites = [] }) {
   const siteName = (id) => sites.find((s) => s.id === id)?.name || "—";
 
   function lastSeenMs(t) {
+    if (typeof t.lastSeenMs === "number") return t.lastSeenMs;
     const ls = t.lastSeen;
     if (!ls) return null;
     return ls.toMillis ? ls.toMillis() : new Date(ls).getTime();

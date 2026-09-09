@@ -1,24 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { addPunch, watchDay, findByMatricule, setCadreHalfDay, sendHeartbeat } from "../lib/store";
+import { addPunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
-import { getDeviceInfo } from "../lib/deviceInfo";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_UNLOCK_KEY = "pointage_tablet_unlock";
-const TABLET_ID_KEY = "pointage_tablet_id";
-
-function getTabletId() {
-  if (typeof window === "undefined") return null;
-  let id = localStorage.getItem(TABLET_ID_KEY);
-  if (!id) {
-    id = "tab_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    localStorage.setItem(TABLET_ID_KEY, id);
-  }
-  return id;
-}
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
@@ -71,24 +59,6 @@ export default function Badgeuse({ employees, sites }) {
     });
     return () => unsub();
   }, []);
-
-  // Battement de cœur : signale que cette tablette est en ligne.
-  useEffect(() => {
-    if (!tabletSite) return;
-    const tabletId = getTabletId();
-    const info = getDeviceInfo();
-    const beat = () => sendHeartbeat(tabletId, tabletSite, {
-      siteName: sites.find((s) => s.id === tabletSite)?.name || null,
-      model: info.model || null,
-      os: info.os || null,
-      browser: info.browser || null,
-      screen: info.screen || null,
-      online: typeof navigator !== "undefined" ? navigator.onLine : true,
-    });
-    beat();
-    const iv = setInterval(beat, 2 * 60 * 1000);
-    return () => clearInterval(iv);
-  }, [tabletSite, sites]);
 
 
   async function identify() {

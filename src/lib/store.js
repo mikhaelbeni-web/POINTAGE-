@@ -16,15 +16,17 @@ const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
 
 // ---------- Suivi des tablettes (heartbeat) ----------
 // Chaque tablette écrit régulièrement un "battement" dans tablets/{tabletId}.
-// L'admin déduit l'état en ligne/hors ligne d'après l'ancienneté du dernier battement.
+// lastSeenMs = heure client (visible tout de suite sur les autres postes,
+// contrairement à serverTimestamp qui est différé par le cache hors-ligne).
 export async function sendHeartbeat(tabletId, siteId, meta = {}) {
   try {
     await setDoc(doc(db, "tablets", tabletId), {
       tabletId, siteId: siteId || null,
       lastSeen: serverTimestamp(),
-      ...meta, // ex. { pendingHint } — indicatif
+      lastSeenMs: Date.now(),
+      ...meta,
     }, { merge: true });
-  } catch (_) { /* hors ligne : le battement partira au retour du réseau */ }
+  } catch (_) { /* hors ligne : partira au retour du réseau */ }
 }
 
 export function watchTablets(cb) {

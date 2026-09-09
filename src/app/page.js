@@ -14,6 +14,20 @@ import Recap from "../components/Recap";
 import DayEditor from "../components/DayEditor";
 import SitesManagers from "../components/SitesManagers";
 import Tablets from "../components/Tablets";
+import { sendHeartbeat } from "../lib/store";
+import { getDeviceInfo } from "../lib/deviceInfo";
+
+const TABLET_SITE_KEY = "pointage_tablet_site";
+const TABLET_ID_KEY = "pointage_tablet_id";
+function getTabletId() {
+  if (typeof window === "undefined") return null;
+  let id = localStorage.getItem(TABLET_ID_KEY);
+  if (!id) {
+    id = "tab_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    localStorage.setItem(TABLET_ID_KEY, id);
+  }
+  return id;
+}
 
 export default function Page() {
   const [employees, setEmployees] = useState([]);
@@ -32,6 +46,25 @@ export default function Page() {
     const u3 = watchManagers((m) => { setManagers(m); setLoaded(true); });
     return () => { u1(); u2(); u3(); };
   }, []);
+
+  // Heartbeat GLOBAL : émis dès que cet appareil est rattaché à un magasin,
+  // quel que soit l'écran (badgeuse OU mode manager). Premier signal immédiat.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const siteId = localStorage.getItem(TABLET_SITE_KEY);
+    if (!siteId) return;
+    const tabletId = getTabletId();
+    const info = getDeviceInfo();
+    const beat = () => sendHeartbeat(tabletId, siteId, {
+      siteName: sites.find((s) => s.id === siteId)?.name || null,
+      model: info.model || null, os: info.os || null,
+      browser: info.browser || null, screen: info.screen || null,
+      online: navigator.onLine,
+    });
+    beat();
+    const iv = setInterval(beat, 60 * 1000); // toutes les minutes
+    return () => clearInterval(iv);
+  }, [sites, session]);
 
   async function tryManagerPin(pin) {
     const all = await getAllManagers();
