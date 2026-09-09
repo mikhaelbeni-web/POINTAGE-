@@ -68,7 +68,7 @@ export default function Tablets({ sites = [] }) {
             }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
-                  {t.siteName || siteName(t.siteId)}
+                  {t.deviceName || "(tablette sans nom)"}
                   <span style={{
                     marginLeft: 10, fontSize: 12, fontWeight: 600,
                     color: t.online ? "var(--green)" : "var(--red)",
@@ -77,8 +77,11 @@ export default function Tablets({ sites = [] }) {
                   </span>
                 </div>
                 <div style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 2 }}>
-                  Dernier contact : {fmtAgo(t.ms)}
+                  Magasin : {t.siteName || siteName(t.siteId)} · Dernier contact : {fmtAgo(t.ms)}
                   {!t.online && t.ms && " — vérifier le Wi-Fi de ce magasin"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 3 }}>
+                  {[t.model, t.os, t.browser, t.screen].filter(Boolean).join(" · ") || "infos appareil non détectées"}
                 </div>
               </div>
               <button onClick={() => forget(t)} style={{
