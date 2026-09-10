@@ -51,7 +51,13 @@ export default function Page() {
   }, []);
 
   // Heartbeat GLOBAL : émis dès que cet appareil est rattaché à un magasin,
-  // quel que soit l'écran (badgeuse OU mode manager). Premier signal immédiat.
+  // quel que soit l'écran. Déclencheurs multiples pour ne pas dépendre
+  // uniquement du minuteur (que le navigateur suspend en arrière-plan) :
+  //  - immédiat au montage
+  //  - toutes les minutes
+  //  - au réveil de la page (visibilitychange) -> clé si l'écran s'est mis en veille
+  //  - au retour du réseau (online)
+  //  - à chaque clic/touche sur la page
   useEffect(() => {
     if (typeof window === "undefined") return;
     const siteId = localStorage.getItem(TABLET_SITE_KEY);
@@ -64,9 +70,31 @@ export default function Page() {
       browser: info.browser || null, screen: info.screen || null,
       online: navigator.onLine,
     });
-    beat();
-    const iv = setInterval(beat, 60 * 1000); // toutes les minutes
-    return () => clearInterval(iv);
+
+    beat(); // immédiat
+    const iv = setInterval(beat, 60 * 1000);
+
+    const onVisible = () => { if (document.visibilityState === "visible") beat(); };
+    const onOnline = () => beat();
+    // interaction : au plus une fois toutes les 20s pour ne pas spammer
+    let lastTouch = 0;
+    const onTouch = () => {
+      const now = Date.now();
+      if (now - lastTouch > 20000) { lastTouch = now; beat(); }
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("pointerdown", onTouch);
+    window.addEventListener("keydown", onTouch);
+
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("pointerdown", onTouch);
+      window.removeEventListener("keydown", onTouch);
+    };
   }, [sites, session]);
 
   async function tryManagerPin(pin) {
