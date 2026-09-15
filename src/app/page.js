@@ -150,7 +150,7 @@ export default function Page() {
   const tabs = [
     ["dashboard", "Tableau de bord"], ["recap", "Récaps & impression"],
     ...(isAdmin ? [["employees", "Salariés"], ["sites", "Magasins & accès"], ["tablets", "État des tablettes"], ["settings", "Paramètres"]] : []),
-    ...(role === "director" ? [["employees", "Salariés"]] : []),
+    ...((role === "director" || role === "supervisor") ? [["employees", "Salariés"]] : []),
   ];
 
   return (
@@ -187,7 +187,7 @@ export default function Page() {
 
       {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
       {tab === "recap" && <Recap employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
-      {tab === "employees" && (isAdmin || role === "director") && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
+      {tab === "employees" && (isAdmin || role === "director" || role === "supervisor") && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "sites" && isAdmin && <SitesManagers sites={sites} managers={managers} employees={employees} />}
       {tab === "tablets" && isAdmin && <Tablets sites={sites} />}
       {tab === "settings" && isAdmin && <Settings />}
