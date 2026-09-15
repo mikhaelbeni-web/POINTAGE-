@@ -168,16 +168,18 @@ export default function Page() {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => {
-            if (confirm("Changer le magasin de CETTE tablette ? La badgeuse redemandera le magasin et son code.")) {
-              localStorage.removeItem("pointage_tablet_site");
-              localStorage.removeItem("pointage_tablet_unlock");
-              setSession(null);
-            }
-          }} style={{
-            padding: "9px 15px", borderRadius: 10, fontSize: 14,
-            background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
-          }}>Changer magasin tablette</button>
+          {isAdmin && (
+            <button onClick={() => {
+              if (confirm("Changer le magasin de CETTE tablette ? La badgeuse redemandera le magasin et son code.")) {
+                localStorage.removeItem("pointage_tablet_site");
+                localStorage.removeItem("pointage_tablet_unlock");
+                setSession(null);
+              }
+            }} style={{
+              padding: "9px 15px", borderRadius: 10, fontSize: 14,
+              background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
+            }}>Changer magasin tablette</button>
+          )}
           <button onClick={() => setSession(null)} style={{
             padding: "9px 15px", borderRadius: 10, fontSize: 14,
             background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text-dim)",
