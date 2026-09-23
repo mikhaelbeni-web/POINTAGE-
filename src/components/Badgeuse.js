@@ -4,7 +4,15 @@ import { addPunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/sto
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Date LOCALE (jamais toISOString qui bascule en UTC) : sinon en soirée en
+// France, le badgeage risque de s'enregistrer sur le mauvais jour.
+function toLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+const todayStr = () => toLocalDateStr(new Date());
 const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_UNLOCK_KEY = "pointage_tablet_unlock";
 

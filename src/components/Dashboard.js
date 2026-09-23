@@ -4,21 +4,30 @@ import { watchDay, getDaysRange, getSettings } from "../lib/store";
 import { StatusPill } from "./ui";
 import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek } from "../lib/timeLogic";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Toujours raisonner en date LOCALE (jamais toISOString, qui bascule en UTC
+// et décale le jour en soirée en France).
+function toLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const todayStr = () => toLocalDateStr(new Date());
 
 function mondayOf(dateStr) {
   const [Y, M, D] = dateStr.split("-").map(Number);
   const d = new Date(Y, M - 1, D);
   const wd = isoWeekday(dateStr);
   d.setDate(d.getDate() - (wd - 1));
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 function addDays(dateStr, n) {
   const [Y, M, D] = dateStr.split("-").map(Number);
   const d = new Date(Y, M - 1, D);
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 export default function Dashboard({ employees, sites = [], allowedSiteIds = null, canEdit = true, onEditDay }) {
