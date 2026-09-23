@@ -14,25 +14,34 @@ function mondayOf(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
+function addDays(dateStr, n) {
+  const [Y, M, D] = dateStr.split("-").map(Number);
+  const d = new Date(Y, M - 1, D);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function Dashboard({ employees, sites = [], allowedSiteIds = null, canEdit = true, onEditDay }) {
   const [days, setDays] = useState({});
   const [settings, setSettings] = useState(null);
   const [weekAlerts, setWeekAlerts] = useState([]);
   const [filterSite, setFilterSite] = useState("all");
+  const [viewDate, setViewDate] = useState(todayStr());
   const today = todayStr();
+  const isToday = viewDate === today;
 
   const visibleSites = allowedSiteIds ? sites.filter((s) => allowedSiteIds.includes(s.id)) : sites;
 
   useEffect(() => { getSettings().then(setSettings); }, []);
 
   useEffect(() => {
-    const unsub = watchDay(today, (list) => {
+    const unsub = watchDay(viewDate, (list) => {
       const map = {};
       list.forEach((d) => (map[d.employeeId] = d));
       setDays(map);
     });
     return () => unsub();
-  }, [today]);
+  }, [viewDate]);
 
   // Alertes hebdo (heures supp au seuil) — recalcul à l'ouverture
   useEffect(() => {
@@ -61,8 +70,8 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
     .filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId))
     .filter((e) => filterSite === "all" || e.siteId === filterSite);
   const present = active.filter((e) => days[e.id]?.status === "present" || days[e.id]?.status === "incomplete");
-  const worksToday = active.filter((e) => (e.workDays || []).includes(isoWeekday(today)));
-  const absent = worksToday.filter((e) => !days[e.id] || days[e.id].status === "absent");
+  const worksViewDay = active.filter((e) => (e.workDays || []).includes(isoWeekday(viewDate)));
+  const absent = worksViewDay.filter((e) => !days[e.id] || days[e.id].status === "absent");
   const late = active.filter((e) => (days[e.id]?.lateMinutes || 0) > 0);
   const restViol = active.filter((e) => days[e.id]?.restViolation);
   const spanViol = active.filter((e) => days[e.id]?.spanViolation);
@@ -71,19 +80,27 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
 
   return (
     <div>
-      {visibleSites.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setViewDate(addDays(viewDate, -1))} style={navBtn} aria-label="Jour précédent">←</button>
+          <input type="date" style={{ ...tdInp, minWidth: 160 }} value={viewDate} max={today} onChange={(e) => setViewDate(e.target.value)} />
+          <button onClick={() => setViewDate(addDays(viewDate, 1))} disabled={isToday} style={{ ...navBtn, opacity: isToday ? 0.4 : 1 }} aria-label="Jour suivant">→</button>
+          {!isToday && (
+            <button onClick={() => setViewDate(today)} style={{ ...navBtn, color: "var(--brass)" }}>Aujourd'hui</button>
+          )}
+        </div>
+        {visibleSites.length > 1 && (
           <select style={{ ...tdInp }} value={filterSite} onChange={(e) => setFilterSite(e.target.value)}>
             <option value="all">Tous mes magasins</option>
             {visibleSites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-        </div>
-      )}
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12, marginBottom: 20 }}>
         <Kpi label="En poste" value={present.length} color="var(--green)" />
         <Kpi label="Absents" value={absent.length} color={absent.length ? "var(--red)" : "var(--text-dim)"} />
         <Kpi label="Retards" value={late.length} color={late.length ? "var(--amber)" : "var(--text-dim)"} />
-        <Kpi label="Prévus aujourd'hui" value={worksToday.length} color="var(--text-dim)" />
+        <Kpi label={isToday ? "Prévus aujourd'hui" : "Prévus ce jour"} value={worksViewDay.length} color="var(--text-dim)" />
       </div>
 
       {(restViol.length > 0 || spanViol.length > 0 || weekAlerts.length > 0) && (
@@ -106,7 +123,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         </div>
       )}
 
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12 }}>Journée du {new Date(today).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12 }}>Journée du {new Date(viewDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}{isToday ? " (aujourd'hui)" : ""}</h2>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
@@ -119,8 +136,8 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
           <tbody>
             {active.map((e) => {
               const d = days[e.id];
-              const worksToday = (e.workDays || []).includes(isoWeekday(today));
-              const status = d?.status || (worksToday ? "absent" : "off");
+              const worksThisDay = (e.workDays || []).includes(isoWeekday(viewDate));
+              const status = d?.status || (worksThisDay ? "absent" : "off");
               return (
                 <tr key={e.id} style={{ borderBottom: "1px solid var(--ink-3)" }}>
                   <td style={td}><strong>{e.displayName}</strong></td>
@@ -136,7 +153,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   </td>
                   <td style={td}>
                     {canEdit ? (
-                      <button onClick={() => onEditDay(e, today)} style={{
+                      <button onClick={() => onEditDay(e, viewDate)} style={{
                         fontSize: 13, color: "var(--brass)", padding: "4px 8px",
                       }}>Corriger</button>
                     ) : null}
@@ -170,6 +187,7 @@ function Alert({ color, children }) {
 }
 const td = { padding: "9px 10px" };
 const tdInp = { padding: "9px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 14 };
+const navBtn = { padding: "9px 14px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 15, fontWeight: 600 };
 function fmt(ts) {
   if (!ts) return <span style={{ color: "var(--text-faint)" }}>—</span>;
   const d = ts.toDate ? ts.toDate() : new Date(ts);
