@@ -121,7 +121,7 @@ export default function Page() {
 
   const role = session?.role;
   const isAdmin = role === "admin";
-  const canEdit = isAdmin || role === "director"; // superviseur = lecture seule
+  const canEdit = isAdmin || role === "director" || role === "supervisor";
   const allowedSiteIds = (!session || isAdmin) ? null : session.siteIds;
 
   if (!session) {
