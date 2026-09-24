@@ -102,7 +102,12 @@ function ManagersPanel({ sites, managers, employees = [] }) {
       siteIds: edit.role === "admin" ? [] : edit.siteIds,
       scope: edit.role === "admin" ? "all" : "sites",
     };
-    if (edit.newPin) mgr.pin = await hashManagerPin(edit.newPin);
+    if (edit.newPin) {
+      const newHash = await hashManagerPin(edit.newPin);
+      const clash = managers.find((m) => m.id !== edit.id && m.pin === newHash);
+      if (clash) { setErr(`Ce code PIN est déjà utilisé par ${clash.name}. Chaque manager doit avoir un code différent.`); return; }
+      mgr.pin = newHash;
+    }
 
     try {
       await saveManager(mgr);
