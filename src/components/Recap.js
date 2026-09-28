@@ -148,7 +148,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-                {["Date", "Magasin", "Arrivée", "Départ", "Pause", "Travaillé", "Retard", "Statut"].map((h) => (
+                {["Date", "Magasin", "Arrivée", "Départ", "Pause", "Travaillé", "Statut"].map((h) => (
                   <th key={h} style={cellH}>{h}</th>
                 ))}
               </tr>
@@ -166,14 +166,12 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
                   <td style={cell}>{fmt(r.departure)}</td>
                   <td style={cell}>{r.breakMinutes ? minutesToHHhMM(r.breakMinutes) : "—"}</td>
                   <td style={cell}>{r.worked ? minutesToHHhMM(r.worked) : "—"}</td>
-                  <td style={{ ...cell, color: r.late ? "var(--amber)" : "inherit" }}>{r.late ? minutesToHHhMM(r.late) : "—"}</td>
                   <td style={cell}>{statusText(r)}</td>
                 </tr>
               );})}
               <tr style={{ fontWeight: 600 }}>
                 <td style={cell} colSpan={5}>Total semaine</td>
                 <td style={cell}>{minutesToHHhMM(w.workedMinutes)}</td>
-                <td style={cell}></td>
                 <td style={cell}>
                   {w.overtimeMinutes > 0
                     ? `+${minutesToHHhMM(w.overtimeMinutes)} ${w.overtimeType === "complementary" ? "compl." : "supp."}`
@@ -189,7 +187,6 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
       <div style={{ marginTop: 8, padding: "12px 0", borderTop: "2px solid var(--line)", display: "flex", gap: 24, flexWrap: "wrap", fontSize: 14 }}>
         <Total label="Total travaillé" value={minutesToHHhMM(totals.workedMinutes)} />
         <Total label={totals.overtimeType === "complementary" ? "H. complémentaires" : "H. supplémentaires"} value={minutesToHHhMM(totals.overtimeMinutes)} />
-        <Total label="Retards cumulés" value={minutesToHHhMM(totals.lateMinutes)} />
         <Total label="Absences" value={String(totals.absences)} />
       </div>
 
