@@ -137,7 +137,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-              {["Salarié", "Statut", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Travaillé", "Retard", ""].map((h) => (
+              {["Salarié", "Statut", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Travaillé", ""].map((h) => (
                 <th key={h} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500 }}>{h}</th>
               ))}
             </tr>
@@ -157,9 +157,6 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   <td style={td}>{fmt(d?.departure)}</td>
                   <td style={{ ...td, color: "var(--amber)" }}>{d?.breakMinutes ? minutesToHHhMM(d.breakMinutes) : "—"}</td>
                   <td style={td}>{d?.workedMinutes ? minutesToHHhMM(d.workedMinutes) : "—"}</td>
-                  <td style={{ ...td, color: d?.lateMinutes ? "var(--amber)" : "var(--text-faint)" }}>
-                    {d?.lateMinutes ? minutesToHHhMM(d.lateMinutes) : "—"}
-                  </td>
                   <td style={td}>
                     {canEdit ? (
                       <button onClick={() => onEditDay(e, viewDate)} style={{
