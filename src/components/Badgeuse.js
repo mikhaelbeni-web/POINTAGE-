@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { badgePunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/store";
+import { badgePunch, watchDaySite, healDirtyDays, findByMatricule, setCadreHalfDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 
@@ -79,9 +79,13 @@ export default function Badgeuse({ employees, sites }) {
     return () => clearInterval(t);
   }, []);
 
+  // Écoute limitée aux jours de CE magasin (les pointages faits ici sont toujours
+  // enregistrés sous le magasin de la tablette). Repli automatique géré par store.js.
   useEffect(() => {
     setDays({}); setPending({});
-    const unsub = watchDay(today, (list) => {
+    if (!tabletSite) return;
+    const unsub = watchDaySite(today, tabletSite, (list) => {
+      healDirtyDays(list); // relance les recalculs restés en suspens
       const map = {}; list.forEach((d) => (map[d.employeeId] = d)); setDays(map);
       // Les pointages en attente que la base confirme sont retirés.
       setPending((prev) => {
@@ -95,7 +99,7 @@ export default function Badgeuse({ employees, sites }) {
       });
     });
     return () => unsub();
-  }, [today]);
+  }, [today, tabletSite]);
 
   // Chiffres oubliés sur le pavé : effacés après 15 s d'inactivité.
   useEffect(() => {
