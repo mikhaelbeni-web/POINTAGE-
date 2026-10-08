@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { badgePunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
@@ -15,6 +15,12 @@ function toLocalDateStr(d) {
 const todayStr = () => toLocalDateStr(new Date());
 const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_UNLOCK_KEY = "pointage_tablet_unlock";
+
+// Raccourcis clavier de l'écran d'action (clavier physique / pavé numérique).
+const SHORTCUT = { arrival: "1", breakOut: "2", breakIn: "3", departure: "4" };
+// Sans action pendant ce délai, l'écran employé se referme (évite qu'une session
+// restée ouverte reçoive les chiffres de la personne suivante).
+const IDLE_RESET_MS = 12000;
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
@@ -54,6 +60,11 @@ export default function Badgeuse({ employees, sites }) {
   const [error, setError] = useState(null);
   const [codeInput, setCodeInput] = useState("");
   const [codeError, setCodeError] = useState(null);
+  const [today, setToday] = useState(todayStr());
+  // Pointages déjà envoyés mais pas encore relus depuis la base : permet d'afficher
+  // l'état à jour tout de suite, sans attendre les allers-retours réseau.
+  const [pending, setPending] = useState({});
+  const toastTimer = useRef(null);
 
   useEffect(() => {
     setTabletSite(localStorage.getItem(TABLET_SITE_KEY));
@@ -61,62 +72,118 @@ export default function Badgeuse({ employees, sites }) {
     setReady(true);
   }, []);
 
+  // Le jour suit l'horloge : une badgeuse allumée toute la nuit passe seule au lendemain
+  // (avant, elle restait sur la journée de la veille jusqu'au prochain rechargement).
   useEffect(() => {
-    const unsub = watchDay(todayStr(), (list) => {
-      const map = {}; list.forEach((d) => (map[d.employeeId] = d)); setDays(map);
-    });
-    return () => unsub();
+    const t = setInterval(() => setToday(todayStr()), 30000);
+    return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    setDays({}); setPending({});
+    const unsub = watchDay(today, (list) => {
+      const map = {}; list.forEach((d) => (map[d.employeeId] = d)); setDays(map);
+      // Les pointages en attente que la base confirme sont retirés.
+      setPending((prev) => {
+        const next = {};
+        for (const [id, p] of Object.entries(prev)) {
+          const rest = {};
+          for (const [k, v] of Object.entries(p)) if (!map[id]?.[k]) rest[k] = v;
+          if (Object.keys(rest).length) next[id] = rest;
+        }
+        return next;
+      });
+    });
+    return () => unsub();
+  }, [today]);
 
-  // Retour automatique au clavier si le salarié s'éloigne sans valider :
-  // sinon l'écran reste bloqué sur lui et le suivant tombe sur son écran.
+  // Chiffres oubliés sur le pavé : effacés après 15 s d'inactivité.
+  useEffect(() => {
+    if (!matricule) return;
+    const t = setTimeout(() => setMatricule(""), 15000);
+    return () => clearTimeout(t);
+  }, [matricule]);
+
+  // Écran employé : se referme après IDLE_RESET_MS sans touche ni toucher.
   useEffect(() => {
     if (!current) return;
-    const t = setTimeout(() => setCurrent(null), 15000);
-    return () => clearTimeout(t);
+    let t = setTimeout(() => setCurrent(null), IDLE_RESET_MS);
+    const reset = () => { clearTimeout(t); t = setTimeout(() => setCurrent(null), IDLE_RESET_MS); };
+    window.addEventListener("keydown", reset);
+    window.addEventListener("pointerdown", reset);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("keydown", reset);
+      window.removeEventListener("pointerdown", reset);
+    };
   }, [current]);
 
-  // Identification INSTANTANÉE : la liste des salariés est déjà en mémoire
-  // (écoute temps réel). Aucun aller-retour réseau. Repli serveur seulement
-  // si la liste n'est pas encore chargée.
-  function identify() {
-    setError(null);
-    if (!matricule) return;
-    const mat = String(matricule);
-    const local = employees.find((e) => String(e.matricule) === mat && e.active !== false);
-    if (local) { setCurrent(local); setMatricule(""); return; }
-    if (employees.length > 0) { setError("Matricule inconnu"); setMatricule(""); return; }
-    findByMatricule(mat).then((emp) => {
-      if (!emp) { setError("Matricule inconnu"); setMatricule(""); return; }
-      setCurrent(emp); setMatricule("");
-    }).catch(() => { setError("Réseau indisponible"); setMatricule(""); });
+  function showToast(text, error = false) {
+    setToast({ text, error });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), error ? 9000 : 3500);
   }
 
-  // Badge OPTIMISTE : l'écran se libère tout de suite pour le suivant, l'écriture
-  // part en arrière-plan (file d'attente Firestore, sûre même hors-ligne).
+  function addPending(empId, key, value) {
+    setPending((p) => ({ ...p, [empId]: { ...(p[empId] || {}), [key]: value } }));
+  }
+  function dropPending(empId, key) {
+    setPending((p) => {
+      if (!p[empId]) return p;
+      const rest = { ...p[empId] }; delete rest[key];
+      const n = { ...p }; if (Object.keys(rest).length) n[empId] = rest; else delete n[empId];
+      return n;
+    });
+  }
+  // Jour de l'employé = données de la base + pointages en attente de confirmation.
+  function viewDay(empId) {
+    const base = days[empId];
+    const p = pending[empId];
+    if (!p) return base;
+    const merged = { ...(base || {}) };
+    for (const [k, v] of Object.entries(p)) if (!merged[k]) merged[k] = v;
+    return merged;
+  }
+
+  async function identify(val) {
+    setError(null);
+    const m = String(val ?? matricule).trim();
+    if (!m) return;
+    // Recherche locale (la liste des salariés est synchronisée en direct) : instantané.
+    // La requête réseau ne sert de secours que si la liste n'est pas encore chargée.
+    let emp = employees.find((e) => e.active !== false && String(e.matricule ?? "").trim() === m) || null;
+    if (!emp && employees.length === 0) {
+      try { emp = await findByMatricule(m); }
+      catch { setError("Réseau indisponible"); setMatricule(""); return; }
+    }
+    if (!emp) { setError("Matricule inconnu"); setMatricule(""); return; }
+    setCurrent(emp); setMatricule("");
+  }
+
+  // Confirmation immédiate : l'heure du pointage est celle du clic ; l'enregistrement
+  // (badgePunch : une seule écriture groupée) se termine en arrière-plan.
   function doPunch(type, label) {
     const emp = current;
     if (!emp) return;
     const at = new Date();
+    addPending(emp.id, type, at);
+    showToast(`${emp.displayName} — ${label} ${at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
     setCurrent(null);
-    setToast(`${emp.displayName} — ${label} ${at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
-    setTimeout(() => setToast(null), 3000);
-    badgePunch(emp, todayStr(), type, at, tabletSite).catch((e) => {
-      setToast(`⚠ ${emp.displayName} : pointage NON enregistré (${e.message}). Recommencez.`);
-      setTimeout(() => setToast(null), 8000);
+    badgePunch(emp, toLocalDateStr(at), type, at, tabletSite).catch((e) => {
+      dropPending(emp.id, type);
+      showToast(`${emp.displayName} : pointage « ${label} » NON enregistré (${e.message}). Recommencez.`, true);
     });
   }
 
   function doHalfDay(half, value, label) {
     const emp = current;
     if (!emp) return;
+    addPending(emp.id, half, value);
+    showToast(`${emp.displayName} — ${label} enregistré`);
     setCurrent(null);
-    setToast(`${emp.displayName} — ${label} enregistré`);
-    setTimeout(() => setToast(null), 3000);
     setCadreHalfDay(emp.id, todayStr(), half, value, "badge", null, tabletSite).catch((e) => {
-      setToast(`⚠ ${emp.displayName} : déclaration NON enregistrée (${e.message}). Recommencez.`);
-      setTimeout(() => setToast(null), 8000);
+      dropPending(emp.id, half);
+      showToast(`${emp.displayName} : déclaration NON enregistrée (${e.message}). Recommencez.`, true);
     });
   }
 
@@ -169,32 +236,58 @@ export default function Badgeuse({ employees, sites }) {
 
       {toast && (
         <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
-          background: "var(--ink-3)", border: `1px solid ${toast.startsWith("⚠") ? "var(--red)" : "var(--green)"}`, color: "var(--text)",
-          padding: "12px 22px", borderRadius: 12, zIndex: 50, fontSize: 16, fontWeight: 500,
-          boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>{toast.startsWith("⚠") ? "" : "✓ "}{toast}</div>
+          background: "var(--ink-3)", border: `1px solid ${toast.error ? "var(--red)" : "var(--green)"}`, color: "var(--text)",
+          padding: "12px 22px", borderRadius: 12, zIndex: 50, fontSize: 16, fontWeight: 500, maxWidth: "90vw",
+          boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>{toast.error ? "⚠" : "✓"} {toast.text}</div>
       )}
 
       {/* 3. Saisie matricule (aucun nom affiché) */}
       {!current && (
-        <MatriculePad value={matricule} setValue={setMatricule} onEnter={identify} error={error} />
+        <MatriculePad value={matricule} setValue={setMatricule} onEnter={identify} onType={() => setError(null)} error={error} />
       )}
 
       {/* 4a. Écran employé (horaire) */}
       {current && current.category !== "cadre" && (
-        <ActionScreen emp={current} day={days[current.id]} onPunch={doPunch} onCancel={() => setCurrent(null)} />
+        <ActionScreen emp={current} day={viewDay(current.id)} onPunch={doPunch} onCancel={() => setCurrent(null)} />
       )}
 
       {/* 4b. Écran cadre (demi-journées) */}
       {current && current.category === "cadre" && (
-        <CadreScreen emp={current} day={days[current.id]} onHalfDay={doHalfDay} onCancel={() => setCurrent(null)} />
+        <CadreScreen emp={current} day={viewDay(current.id)} onHalfDay={doHalfDay} onCancel={() => setCurrent(null)} />
       )}
     </div>
   );
 }
 
-function MatriculePad({ value, setValue, onEnter, error }) {
-  const press = (d) => setValue((value + d).slice(0, 6));
-  const back = () => setValue(value.slice(0, -1));
+function MatriculePad({ value, setValue, onEnter, onType, error }) {
+  // Les refs gardent la valeur la plus récente même si des touches arrivent très vite
+  // (lecteur de badges USB, qui "tape" le matricule puis Entrée en quelques ms).
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const onEnterRef = useRef(onEnter);
+  onEnterRef.current = onEnter;
+  const onTypeRef = useRef(onType);
+  onTypeRef.current = onType;
+  const update = (v) => { valueRef.current = v; setValue(v); };
+  // Une frappe efface l'ancien message d'erreur (« Matricule inconnu »).
+  const press = (d) => { onTypeRef.current && onTypeRef.current(); update((valueRef.current + d).slice(0, 6)); };
+  const back = () => update(valueRef.current.slice(0, -1));
+  const submit = () => onEnterRef.current(valueRef.current);
+
+  // Clavier physique : chiffres, Retour arrière, Échap (tout effacer), Entrée (valider).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (/^[0-9]$/.test(e.key)) { e.preventDefault(); if (!e.repeat) press(e.key); }
+      else if (e.key === "Backspace") { e.preventDefault(); back(); }
+      else if (e.key === "Escape") { e.preventDefault(); update(""); }
+      else if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) submit(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div style={{ maxWidth: 320, margin: "0 auto", textAlign: "center", width: "100%" }}>
       <p style={{ color: "var(--text-dim)", fontSize: 16, marginBottom: 14 }}>Entrez votre matricule</p>
@@ -208,7 +301,7 @@ function MatriculePad({ value, setValue, onEnter, error }) {
         ))}
         <button onClick={back} style={{ ...padBtn, fontSize: 22 }}>⌫</button>
         <button onClick={() => press("0")} style={padBtn}>0</button>
-        <button onClick={onEnter} style={{ ...padBtn, background: "var(--brass)", color: "#1a1204", fontWeight: 700 }}>OK</button>
+        <button onClick={submit} style={{ ...padBtn, background: "var(--brass)", color: "#1a1204", fontWeight: 700 }}>OK</button>
       </div>
     </div>
   );
@@ -220,6 +313,32 @@ const padBtn = {
 
 function ActionScreen({ emp, day, onPunch, onCancel }) {
   const actions = nextActions(day);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const cb = useRef({});
+  cb.current = { onPunch, onCancel };
+  const mountedAt = useRef(Date.now());
+
+  // Clavier : 1 Arrivée · 2 Départ pause · 3 Retour pause · 4 Départ.
+  // Entrée valide l'action quand il n'y en a qu'une. Échap / Retour arrière : annuler.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const list = actionsRef.current;
+      if (e.key === "Escape" || e.key === "Backspace") { e.preventDefault(); cb.current.onCancel(); return; }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        // Délai de garde : un lecteur de badges qui enverrait deux fois Entrée ne doit pas pointer.
+        if (list.length === 1 && Date.now() - mountedAt.current > 700) cb.current.onPunch(list[0][0], list[0][1]);
+        return;
+      }
+      const hit = list.find(([type]) => SHORTCUT[type] === e.key);
+      if (hit) { e.preventDefault(); cb.current.onPunch(hit[0], hit[1]); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div style={{ maxWidth: 460, margin: "6px auto 0", textAlign: "center", width: "100%" }}>
       <h2 style={{ fontSize: 24, fontWeight: 600 }}>{emp.displayName}</h2>
@@ -232,9 +351,15 @@ function ActionScreen({ emp, day, onPunch, onCancel }) {
             <button key={type} onClick={() => onPunch(type, label)} style={{
               padding: "22px", borderRadius: 14, fontSize: 22, fontWeight: 600,
               background: `color-mix(in srgb, ${color} 18%, var(--ink-2))`,
-              border: `1.5px solid ${color}`, color: "var(--text)" }}>{label}</button>
+              border: `1.5px solid ${color}`, color: "var(--text)" }}>
+              {label}
+              <span style={{ marginLeft: 12, fontSize: 14, fontWeight: 500, color: "var(--text-faint)" }}>[{SHORTCUT[type]}]</span>
+            </button>
           ))}
         </div>
+      )}
+      {actions.length === 1 && (
+        <p style={{ color: "var(--text-faint)", fontSize: 13, marginTop: 14 }}>Entrée pour valider</p>
       )}
       <button onClick={onCancel} style={{ marginTop: 22, padding: "12px 24px", color: "var(--text-dim)", fontSize: 15 }}>← Retour</button>
     </div>
@@ -245,6 +370,33 @@ function CadreScreen({ emp, day, onHalfDay, onCancel }) {
   const [pick, setPick] = useState(null); // {half, label}
   const mDone = day?.morning, aDone = day?.afternoon;
 
+  // Clavier : 1 Matin · 2 Après-midi ; ensuite 1 ou Entrée = Présent. Échap : retour.
+  // (Les motifs d'absence restent au toucher.)
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const cb = useRef({});
+  cb.current = { onHalfDay, onCancel };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const p = pickRef.current;
+      if (e.key === "Escape" || e.key === "Backspace") {
+        e.preventDefault();
+        if (p) setPick(null); else cb.current.onCancel();
+        return;
+      }
+      if (!p) {
+        if (e.key === "1") { e.preventDefault(); setPick({ half: "morning", label: "Matin" }); }
+        else if (e.key === "2") { e.preventDefault(); setPick({ half: "afternoon", label: "Après-midi" }); }
+      } else if (e.key === "1" || e.key === "Enter") {
+        e.preventDefault();
+        cb.current.onHalfDay(p.half, "present", `${p.label} présent`);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (pick) {
     return (
       <div style={{ maxWidth: 460, margin: "6px auto 0", textAlign: "center", width: "100%" }}>
@@ -254,7 +406,7 @@ function CadreScreen({ emp, day, onHalfDay, onCancel }) {
           <button onClick={() => onHalfDay(pick.half, "present", `${pick.label} présent`)} style={{
             padding: "20px", borderRadius: 14, fontSize: 20, fontWeight: 600,
             background: "color-mix(in srgb, var(--green) 18%, var(--ink-2))", border: "1.5px solid var(--green)", color: "var(--text)" }}>
-            Présent
+            Présent <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-faint)" }}>[1]</span>
           </button>
           {LEAVE_TYPES.map(([k, label]) => (
             <button key={k} onClick={() => onHalfDay(pick.half, k, `${pick.label} : ${label}`)} style={{
@@ -272,8 +424,8 @@ function CadreScreen({ emp, day, onHalfDay, onCancel }) {
       <h2 style={{ fontSize: 24, fontWeight: 600 }}>{emp.displayName}</h2>
       <p style={{ color: "var(--text-faint)", fontSize: 14, margin: "6px 0 20px" }}>Cadre — déclaration par demi-journée</p>
       <div style={{ display: "grid", gap: 14 }}>
-        <HalfBtn label="Matin" state={mDone} onClick={() => setPick({ half: "morning", label: "Matin" })} />
-        <HalfBtn label="Après-midi" state={aDone} onClick={() => setPick({ half: "afternoon", label: "Après-midi" })} />
+        <HalfBtn label="Matin [1]" state={mDone} onClick={() => setPick({ half: "morning", label: "Matin" })} />
+        <HalfBtn label="Après-midi [2]" state={aDone} onClick={() => setPick({ half: "afternoon", label: "Après-midi" })} />
       </div>
       <button onClick={onCancel} style={{ marginTop: 22, padding: "12px 24px", color: "var(--text-dim)", fontSize: 15 }}>← Retour</button>
     </div>
