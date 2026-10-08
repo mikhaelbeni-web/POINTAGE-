@@ -14,6 +14,15 @@ import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./time
 const SETTINGS_ID = "global";
 const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
 
+// Veille d'une date "YYYY-MM-DD", calculée en date locale (sans passer par l'UTC).
+function prevDateStr(date) {
+  const [Y, M, D] = date.split("-").map(Number);
+  const d = new Date(Y, M - 1, D - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // ---------- Suivi des tablettes (heartbeat) ----------
 // Chaque tablette écrit régulièrement un "battement" dans tablets/{tabletId}.
 // lastSeenMs = heure client (visible tout de suite sur les autres postes,
@@ -226,10 +235,24 @@ export async function badgePunch(emp, date, type, at, siteId) {
   batch.set(dayRef, {
     siteId: sid, employeeId: emp.id, date, [type]: when,
     source: "badge", updatedAt: serverTimestamp(),
+    // Marqueur "à recalculer" : effacé uniquement par un recalcul réussi.
+    // S'il reste (coupure réseau, tablette rechargée…), un autre poste le refait.
+    needsRecompute: true,
   }, { merge: true });
   await batch.commit();
-  // Recalcul en arrière-plan (pas d'attente côté écran).
-  recomputeDay(emp.id, date, true, sid, emp).catch(() => {});
+  // Recalcul en arrière-plan (pas d'attente côté écran), avec nouvelles tentatives.
+  recomputeInBackground(sid, emp.id, date, emp);
+}
+
+// Recalcul en arrière-plan : 4 tentatives espacées. En cas d'échec définitif,
+// le jour reste marqué needsRecompute et sera recalculé par healDirtyDays.
+function recomputeInBackground(siteId, empId, date, emp) {
+  (async () => {
+    for (const wait of [0, 2000, 10000, 30000]) {
+      if (wait) await sleep(wait);
+      try { await recomputeDayDoc(siteId, empId, date, emp); return; } catch (_) { /* nouvelle tentative */ }
+    }
+  })();
 }
 
 export async function setDayTimes(empId, date, times, editedBy) {
@@ -243,10 +266,14 @@ export async function setDayTimes(empId, date, times, editedBy) {
   }
   await setDoc(
     doc(db, "days", dayId(siteId, empId, date)),
-    { siteId, employeeId: empId, date, ...patch, source: "manual", editedBy },
+    { siteId, employeeId: empId, date, ...patch, source: "manual", editedBy, needsRecompute: true },
     { merge: true }
   );
-  await recomputeDay(empId, date, true);
+  // Les heures corrigées sont enregistrées ci-dessus. Si le recalcul échoue
+  // (réseau), le jour reste marqué et sera recalculé plus tard : on ne bloque
+  // pas la fenêtre de correction.
+  try { await recomputeDayDoc(siteId, empId, date, emp); }
+  catch (_) { recomputeInBackground(siteId, empId, date, emp); }
 }
 
 function hhmmToDate(date, hhmm) {
@@ -285,7 +312,140 @@ export async function recomputeCadreDay(empId, date, siteId = null) {
   }, { merge: true });
 }
 
+// ------------------------------------------------------------------
+// Recalcul SÛR d'un jour (badge, correction manager, réparation).
+// 1. Ne réécrit JAMAIS les heures (arrivée, pause, retour, départ) : elles ne
+//    sont écrites que par le badge ou la correction manager. Un pointage
+//    simultané ne peut donc plus être effacé par un recalcul.
+// 2. Transaction : si le jour change entre la lecture et l'écriture (autre
+//    badge, correction), Firestore rejoue le calcul sur la version à jour.
+//    Les indicateurs (heures, retard, statut) correspondent toujours aux heures.
+// 3. Chaque salarié a son propre document : aucune attente entre salariés ni
+//    entre magasins.
+// Lève une erreur si hors-ligne / échec : l'appelant garde le jour "à recalculer".
+// ------------------------------------------------------------------
+export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) {
+  if (isOffline()) throw new Error("hors-ligne");
+  const emp = empPreloaded || (await getEmployee(empId));
+  if (!emp) return;
+  const settings = await getSettings();
+  const ref = doc(db, "days", dayId(siteId, empId, date));
+
+  // Départ de la veille (repos minimum), tous magasins confondus.
+  // En cas d'échec de la requête : repli sur le jour de la veille du même magasin.
+  const prevStr = prevDateStr(date);
+  let prevDeparture = null;
+  try {
+    const prevSnap = await getDocs(query(
+      collection(db, "days"), where("employeeId", "==", empId), where("date", "==", prevStr)
+    ));
+    prevSnap.docs.forEach((d) => {
+      const dep = d.data().departure;
+      if (dep && (!prevDeparture || dep.toMillis() > prevDeparture.toMillis())) prevDeparture = dep;
+    });
+  } catch (_) {
+    const p = await getDoc(doc(db, "days", dayId(siteId, empId, prevStr)));
+    prevDeparture = p.exists() ? (p.data().departure || null) : null;
+  }
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const cur = snap.data();
+    if (cur.category === "cadre") return; // les cadres ont leur propre calcul
+    const times = {
+      arrival: cur.arrival || null, breakOut: cur.breakOut || null,
+      breakIn: cur.breakIn || null, departure: cur.departure || null,
+    };
+    const m = computeDay(times, emp, settings, date);
+    let restViolation = false, restMinutes = null;
+    if (prevDeparture && times.arrival) {
+      const r = checkRest(prevDeparture, times.arrival, settings);
+      restViolation = r.violation; restMinutes = r.restMinutes;
+    }
+    tx.update(ref, {
+      workedMinutes: m.workedMinutes, breakMinutes: m.breakMinutes,
+      spanMinutes: m.spanMinutes, spanViolation: m.spanViolation,
+      lateMinutes: m.lateMinutes, status: m.status,
+      restViolation, restMinutes,
+      needsRecompute: false,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+// ------------------------------------------------------------------
+// Réparation automatique : tout poste qui affiche des jours (badgeuse,
+// tableau de bord) relance le recalcul des jours restés "à recalculer"
+// plus de ~20 s. Sans danger si plusieurs postes le font en même temps
+// (transaction). Nombre de tentatives limité par jour et par session.
+// ------------------------------------------------------------------
+const HEAL_DELAY_MS = 20000;
+const HEAL_RETRY_MS = 60000;
+const HEAL_MAX_ATTEMPTS = 5;
+const _healTimers = new Map();   // id du jour -> minuteur programmé
+const _healLatest = new Map();   // id du jour -> dernière version vue
+const _healAttempts = new Map(); // id du jour -> nombre de tentatives
+const _empCache = new Map();     // id salarié -> { emp, at } (relue toutes les 5 min)
+const EMP_CACHE_MS = 5 * 60 * 1000;
+
+function _armHeal(id, delay) {
+  if (_healTimers.has(id)) return;
+  if ((_healAttempts.get(id) || 0) >= HEAL_MAX_ATTEMPTS) return;
+  const jitter = Math.floor(Math.random() * 10000); // évite que tous les postes réparent en même temps
+  _healTimers.set(id, setTimeout(async () => {
+    _healTimers.delete(id);
+    const d = _healLatest.get(id);
+    if (!d || d.needsRecompute !== true || d.category === "cadre") return;
+    _healAttempts.set(id, (_healAttempts.get(id) || 0) + 1);
+    try {
+      const c = _empCache.get(d.employeeId);
+      let emp = c && Date.now() - c.at < EMP_CACHE_MS ? c.emp : null;
+      if (!emp) { emp = await getEmployee(d.employeeId); if (emp) _empCache.set(d.employeeId, { emp, at: Date.now() }); }
+      if (!emp) return;
+      await recomputeDayDoc(d.siteId, d.employeeId, d.date, emp);
+    } catch (_) {
+      _armHeal(id, HEAL_RETRY_MS);
+    }
+  }, delay + jitter));
+}
+
+// Retour du réseau après une longue coupure : on remet les compteurs à zéro et on
+// relance tout de suite la réparation des jours encore "à recalculer".
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    try {
+      _healAttempts.clear();
+      for (const [id, d] of _healLatest) {
+        if (d.needsRecompute === true && !d._pending && d.category !== "cadre") _armHeal(id, 3000);
+      }
+    } catch (_) { /* jamais bloquant */ }
+  });
+}
+
+export function healDirtyDays(list) {
+  try {
+    for (const d of list || []) {
+      if (!d || !d.id) continue;
+      _healLatest.set(d.id, d);
+      if (d.needsRecompute === true && !d._pending && d.category !== "cadre") {
+        _armHeal(d.id, HEAL_DELAY_MS);
+      } else {
+        const t = _healTimers.get(d.id);
+        if (t) { clearTimeout(t); _healTimers.delete(d.id); }
+      }
+    }
+  } catch (_) { /* la réparation ne doit jamais casser l'affichage */ }
+}
+
 export async function recomputeDay(empId, date, fromManual = false, punchSiteId = null, empPreloaded = null) {
+  if (fromManual) {
+    const e = empPreloaded || (await getEmployee(empId));
+    if (!e) return;
+    return recomputeDayDoc(punchSiteId || e.siteId || "main", empId, date, e);
+  }
+  // Ancien chemin (reconstruction depuis le journal des badges), conservé tel quel.
+  // N'est plus utilisé par la badgeuse (badgePunch) ni par la correction manager.
   const emp = empPreloaded || (await getEmployee(empId));
   if (!emp) return;
   const settings = await getSettings();
@@ -359,9 +519,48 @@ export async function getDaysRange(empId, startDate, endDate) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// _pending = écriture locale pas encore confirmée par le serveur (sert à la réparation).
+const mapDays = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites }));
+
 export function watchDay(date, cb) {
   const q = query(collection(db, "days"), where("date", "==", date));
-  return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  return onSnapshot(q, (snap) => cb(mapDays(snap)));
+}
+
+// Badgeuse : uniquement les jours du magasin de la tablette (divise les lectures
+// par le nombre de magasins). Si Firestore refuse la requête (index), repli
+// automatique sur l'écoute de tous les jours de la date, filtrée côté tablette :
+// même résultat, seulement plus de lectures.
+export function watchDaySite(date, siteId, cb) {
+  let unsub = () => {};
+  let stopped = false;
+  const fallback = () => {
+    if (stopped) return;
+    const q = query(collection(db, "days"), where("date", "==", date));
+    unsub = onSnapshot(q, (snap) => cb(mapDays(snap).filter((d) => d.siteId === siteId)));
+  };
+  const q = query(collection(db, "days"), where("date", "==", date), where("siteId", "==", siteId));
+  unsub = onSnapshot(q, (snap) => cb(mapDays(snap)), (err) => {
+    console.warn("[pointage] écoute par magasin refusée, repli :", err && err.code);
+    try { unsub(); } catch (_) {}
+    fallback();
+  });
+  return () => { stopped = true; try { unsub(); } catch (_) {} };
+}
+
+// Récap : relit les jours et recalcule d'abord ceux restés "à recalculer",
+// pour ne jamais imprimer de chiffres en retard. stale = nombre de jours
+// qu'il a été impossible de recalculer (à signaler à l'écran).
+export async function getDaysRangeHealed(emp, startDate, endDate) {
+  let days = await getDaysRange(emp.id, startDate, endDate);
+  const dirty = days.filter((d) => d.needsRecompute === true && d.category !== "cadre");
+  if (dirty.length === 0) return { days, stale: 0 };
+  for (const d of dirty) {
+    try { await recomputeDayDoc(d.siteId, emp.id, d.date, emp); } catch (_) { /* compté plus bas */ }
+  }
+  days = await getDaysRange(emp.id, startDate, endDate);
+  const stale = days.filter((d) => d.needsRecompute === true && d.category !== "cadre").length;
+  return { days, stale };
 }
 
 // ---------- Congés ----------
