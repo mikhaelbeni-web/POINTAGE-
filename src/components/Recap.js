@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getDaysRange, getLeaves, getSettings } from "../lib/store";
+import { getDaysRangeHealed, getLeaves, getSettings } from "../lib/store";
 import { buildMonthlyRecap, monthBounds } from "../lib/recap";
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { inp, btnPrimary, btnGhost } from "./Employees";
@@ -15,6 +15,7 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
   const [recaps, setRecaps] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [staleNames, setStaleNames] = useState([]); // salariés avec des jours non recalculés
   const [selectedSites, setSelectedSites] = useState([]); // [] = tous les magasins autorisés
 
   // Magasins que cet utilisateur peut voir
@@ -32,6 +33,7 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
   async function generate() {
     setLoading(true);
     setError(null);
+    setStaleNames([]);
     try {
       const settings = await getSettings();
       const { start, end } = monthBounds(year, month);
@@ -39,11 +41,15 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         ? scoped.filter((e) => e.active !== false)
         : scoped.filter((e) => e.id === empId);
       const out = [];
+      const stale = [];
       for (const emp of targets) {
-        const days = await getDaysRange(emp.id, start, end);
+        // Recalcule d'abord les jours restés en suspens (coupure réseau…).
+        const { days, stale: n } = await getDaysRangeHealed(emp, start, end);
+        if (n > 0) stale.push(`${emp.displayName} (${n} j)`);
         const leaves = await getLeaves(emp.id, start, end);
         out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month) });
       }
+      setStaleNames(stale);
       setRecaps(out);
     } catch (e) {
       setError("Erreur lors de la génération : " + (e?.message || e));
@@ -53,7 +59,7 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
   }
 
   // Si le magasin du salarié sélectionné n'est plus dans le filtre, réinitialiser
-  useEffect(() => { setRecaps(null); }, [empId, year, month, selectedSites]);
+  useEffect(() => { setRecaps(null); setStaleNames([]); }, [empId, year, month, selectedSites]);
   useEffect(() => {
     if (empId !== "all" && !scoped.find((e) => e.id === empId)) setEmpId("all");
   }, [selectedSites]); // eslint-disable-line
@@ -109,6 +115,13 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         <div className="no-print" style={{ padding: "11px 14px", borderRadius: 10, marginBottom: 16,
           background: "color-mix(in srgb, var(--red) 12%, var(--ink-2))", border: "1px solid var(--red)", color: "var(--text)", fontSize: 14 }}>
           {error}
+        </div>
+      )}
+
+      {staleNames.length > 0 && (
+        <div className="no-print" style={{ padding: "11px 14px", borderRadius: 10, marginBottom: 16,
+          background: "color-mix(in srgb, var(--amber) 14%, var(--ink-2))", border: "1px solid var(--amber)", color: "var(--text)", fontSize: 14 }}>
+          ⚠ Calcul pas encore à jour pour : {staleNames.join(", ")}. Vérifiez la connexion et cliquez à nouveau sur « Générer » avant d'imprimer.
         </div>
       )}
 
