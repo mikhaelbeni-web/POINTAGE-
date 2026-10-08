@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { watchDay, getDaysRange, getSettings } from "../lib/store";
+import { watchDay, getDaysRange, getSettings, healDirtyDays } from "../lib/store";
 import { StatusPill } from "./ui";
 import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek } from "../lib/timeLogic";
 
@@ -45,6 +45,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
 
   useEffect(() => {
     const unsub = watchDay(viewDate, (list) => {
+      healDirtyDays(list); // relance les recalculs restés en suspens
       const map = {};
       list.forEach((d) => (map[d.employeeId] = d));
       setDays(map);
