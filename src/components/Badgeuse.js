@@ -43,6 +43,9 @@ function LiveClock() {
 function nextActions(day) {
   const has = (k) => day && day[k];
   if (!has("arrival")) return [["arrival", "Arrivée", "var(--green)"]];
+  // Départ déjà badgé = journée terminée, avec ou sans pause : plus rien à proposer
+  // ce jour-là. Le lendemain, la badgeuse repart d'une journée vide (Arrivée).
+  if (has("departure")) return [];
   if (!has("breakOut")) return [["breakOut", "Départ pause", "var(--amber)"], ["departure", "Départ", "var(--red)"]];
   if (!has("breakIn")) return [["breakIn", "Retour pause", "var(--green)"]];
   if (!has("departure")) return [["departure", "Départ", "var(--red)"]];
