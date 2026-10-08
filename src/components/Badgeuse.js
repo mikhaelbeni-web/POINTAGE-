@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { addPunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/store";
+import { badgePunch, watchDay, findByMatricule, setCadreHalfDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 
@@ -69,28 +69,55 @@ export default function Badgeuse({ employees, sites }) {
   }, []);
 
 
-  async function identify() {
+  // Retour automatique au clavier si le salarié s'éloigne sans valider :
+  // sinon l'écran reste bloqué sur lui et le suivant tombe sur son écran.
+  useEffect(() => {
+    if (!current) return;
+    const t = setTimeout(() => setCurrent(null), 15000);
+    return () => clearTimeout(t);
+  }, [current]);
+
+  // Identification INSTANTANÉE : la liste des salariés est déjà en mémoire
+  // (écoute temps réel). Aucun aller-retour réseau. Repli serveur seulement
+  // si la liste n'est pas encore chargée.
+  function identify() {
     setError(null);
     if (!matricule) return;
-    const emp = await findByMatricule(matricule);
-    if (!emp) { setError("Matricule inconnu"); setMatricule(""); return; }
-    setCurrent(emp); setMatricule("");
+    const mat = String(matricule);
+    const local = employees.find((e) => String(e.matricule) === mat && e.active !== false);
+    if (local) { setCurrent(local); setMatricule(""); return; }
+    if (employees.length > 0) { setError("Matricule inconnu"); setMatricule(""); return; }
+    findByMatricule(mat).then((emp) => {
+      if (!emp) { setError("Matricule inconnu"); setMatricule(""); return; }
+      setCurrent(emp); setMatricule("");
+    }).catch(() => { setError("Réseau indisponible"); setMatricule(""); });
   }
 
-  async function doPunch(type, label) {
-    try {
-      await addPunch(current.id, todayStr(), type, "badge", null, new Date(), tabletSite);
-      setToast(`${label} — ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
-    } catch (e) { setToast("Erreur : " + e.message); }
-    setCurrent(null); setTimeout(() => setToast(null), 3500);
+  // Badge OPTIMISTE : l'écran se libère tout de suite pour le suivant, l'écriture
+  // part en arrière-plan (file d'attente Firestore, sûre même hors-ligne).
+  function doPunch(type, label) {
+    const emp = current;
+    if (!emp) return;
+    const at = new Date();
+    setCurrent(null);
+    setToast(`${emp.displayName} — ${label} ${at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
+    setTimeout(() => setToast(null), 3000);
+    badgePunch(emp, todayStr(), type, at, tabletSite).catch((e) => {
+      setToast(`⚠ ${emp.displayName} : pointage NON enregistré (${e.message}). Recommencez.`);
+      setTimeout(() => setToast(null), 8000);
+    });
   }
 
-  async function doHalfDay(half, value, label) {
-    try {
-      await setCadreHalfDay(current.id, todayStr(), half, value, "badge", null, tabletSite);
-      setToast(`${label} enregistré`);
-    } catch (e) { setToast("Erreur : " + e.message); }
-    setCurrent(null); setTimeout(() => setToast(null), 3500);
+  function doHalfDay(half, value, label) {
+    const emp = current;
+    if (!emp) return;
+    setCurrent(null);
+    setToast(`${emp.displayName} — ${label} enregistré`);
+    setTimeout(() => setToast(null), 3000);
+    setCadreHalfDay(emp.id, todayStr(), half, value, "badge", null, tabletSite).catch((e) => {
+      setToast(`⚠ ${emp.displayName} : déclaration NON enregistrée (${e.message}). Recommencez.`);
+      setTimeout(() => setToast(null), 8000);
+    });
   }
 
   if (!ready) return null;
@@ -142,9 +169,9 @@ export default function Badgeuse({ employees, sites }) {
 
       {toast && (
         <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
-          background: "var(--ink-3)", border: "1px solid var(--green)", color: "var(--text)",
+          background: "var(--ink-3)", border: `1px solid ${toast.startsWith("⚠") ? "var(--red)" : "var(--green)"}`, color: "var(--text)",
           padding: "12px 22px", borderRadius: 12, zIndex: 50, fontSize: 16, fontWeight: 500,
-          boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>✓ {toast}</div>
+          boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>{toast.startsWith("⚠") ? "" : "✓ "}{toast}</div>
       )}
 
       {/* 3. Saisie matricule (aucun nom affiché) */}
