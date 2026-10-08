@@ -6,7 +6,7 @@
 // ============================================================
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  query, where, onSnapshot, serverTimestamp, Timestamp, runTransaction,
+  query, where, onSnapshot, serverTimestamp, Timestamp, runTransaction, writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
@@ -65,18 +65,27 @@ export async function findByMatricule(matricule) {
 }
 
 // ---------- Réglages (globaux) ----------
+// Cache mémoire 5 min : les réglages changent rarement, inutile de les relire
+// à chaque badge (économise un aller-retour réseau par pointage).
+let _settingsCache = null;
+let _settingsAt = 0;
 export async function getSettings() {
+  if (_settingsCache && Date.now() - _settingsAt < 5 * 60 * 1000) return _settingsCache;
   const ref = doc(db, "settings", SETTINGS_ID);
   const snap = await getDoc(ref);
+  let out;
   if (!snap.exists()) {
-    const init = { ...DEFAULT_SETTINGS };
-    await setDoc(ref, init);
-    return init;
+    out = { ...DEFAULT_SETTINGS };
+    await setDoc(ref, out);
+  } else {
+    out = { ...DEFAULT_SETTINGS, ...snap.data() };
   }
-  return { ...DEFAULT_SETTINGS, ...snap.data() };
+  _settingsCache = out; _settingsAt = Date.now();
+  return out;
 }
 export async function saveSettings(patch) {
   await setDoc(doc(db, "settings", SETTINGS_ID), patch, { merge: true });
+  _settingsCache = null; // force la relecture après modification
 }
 
 // ---------- Magasins ----------
@@ -200,6 +209,29 @@ export async function addPunch(empId, date, type, source = "badge", editedBy = n
   return id;
 }
 
+// Badge rapide (tablette) : UNE seule écriture atomique (journal du badge +
+// heure dans le jour), sans aucune lecture préalable. Le salarié est déjà connu
+// côté tablette (emp). Le recalcul des indicateurs (heures, retard, repos)
+// part ensuite en arrière-plan : l'écran n'attend pas.
+export async function badgePunch(emp, date, type, at, siteId) {
+  const sid = siteId || emp.siteId || "main";
+  const when = Timestamp.fromDate(at instanceof Date ? at : new Date(at));
+  const punchRef = doc(collection(db, "punches"));
+  const dayRef = doc(db, "days", dayId(sid, emp.id, date));
+  const batch = writeBatch(db);
+  batch.set(punchRef, {
+    siteId: sid, employeeId: emp.id, date, type, at: when,
+    source: "badge", editedBy: null, createdAt: serverTimestamp(),
+  });
+  batch.set(dayRef, {
+    siteId: sid, employeeId: emp.id, date, [type]: when,
+    source: "badge", updatedAt: serverTimestamp(),
+  }, { merge: true });
+  await batch.commit();
+  // Recalcul en arrière-plan (pas d'attente côté écran).
+  recomputeDay(emp.id, date, true, sid, emp).catch(() => {});
+}
+
 export async function setDayTimes(empId, date, times, editedBy) {
   const emp = await getEmployee(empId);
   if (!emp) throw new Error("Salarié introuvable");
@@ -253,8 +285,8 @@ export async function recomputeCadreDay(empId, date, siteId = null) {
   }, { merge: true });
 }
 
-export async function recomputeDay(empId, date, fromManual = false, punchSiteId = null) {
-  const emp = await getEmployee(empId);
+export async function recomputeDay(empId, date, fromManual = false, punchSiteId = null, empPreloaded = null) {
+  const emp = empPreloaded || (await getEmployee(empId));
   if (!emp) return;
   const settings = await getSettings();
 
