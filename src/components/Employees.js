@@ -3,13 +3,12 @@ import { useState } from "react";
 import { saveEmployee, deleteEmployee, nextMatricule } from "../lib/store";
 import { minutesToHHhMM, FULL_TIME_WEEKLY_MINUTES } from "../lib/timeLogic";
 
-const DAYS = [["Lun", 1], ["Mar", 2], ["Mer", 3], ["Jeu", 4], ["Ven", 5], ["Sam", 6], ["Dim", 7]];
 
 const blank = (siteId) => ({
   firstName: "", lastName: "", displayName: "", siteId: siteId || "",
   category: "employee",
   contractType: "full", weeklyContractMinutes: FULL_TIME_WEEKLY_MINUTES,
-  workDays: [1, 2, 3, 4, 5], plannedStart: "09:00", plannedEnd: "17:00",
+  plannedStart: "09:00", plannedEnd: "17:00",
   active: true,
 });
 
@@ -154,25 +153,6 @@ export default function Employees({ employees, sites = [], allowedSiteIds = null
                 </div>
               </>
             )}
-
-            <Field label="Jours travaillés">
-              <div style={{ display: "flex", gap: 6 }}>
-                {DAYS.map(([lbl, n]) => {
-                  const on = edit.workDays.includes(n);
-                  return (
-                    <button key={n} onClick={() => setEdit({
-                      ...edit,
-                      workDays: on ? edit.workDays.filter((x) => x !== n) : [...edit.workDays, n].sort(),
-                    })} style={{
-                      flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600,
-                      background: on ? "color-mix(in srgb, var(--brass) 20%, var(--ink-2))" : "var(--ink-2)",
-                      border: `1px solid ${on ? "var(--brass)" : "var(--line)"}`,
-                      color: on ? "var(--text)" : "var(--text-dim)",
-                    }}>{lbl}</button>
-                  );
-                })}
-              </div>
-            </Field>
 
             <Field label="Statut">
               <select style={{ ...inp, maxWidth: 200 }} value={edit.active ? "1" : "0"} onChange={(ev) => setEdit({ ...edit, active: ev.target.value === "1" })}>

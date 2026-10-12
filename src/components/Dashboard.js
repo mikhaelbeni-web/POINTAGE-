@@ -80,8 +80,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
     .filter((e) => !allowedSiteIds || allowedSiteIds.includes(e.siteId))
     .filter((e) => filterSite === "all" || e.siteId === filterSite);
   const present = active.filter((e) => days[e.id]?.status === "present" || days[e.id]?.status === "incomplete");
-  const worksViewDay = active.filter((e) => (e.workDays || []).includes(isoWeekday(viewDate)));
-  const absent = worksViewDay.filter((e) => !days[e.id] || days[e.id].status === "absent");
+  const absent = active.filter((e) => !days[e.id] || days[e.id].status === "absent");
   const late = active.filter((e) => (days[e.id]?.lateMinutes || 0) > 0);
   const restViol = active.filter((e) => days[e.id]?.restViolation);
   const spanViol = active.filter((e) => days[e.id]?.spanViolation);
@@ -110,7 +109,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         <Kpi label="En poste" value={present.length} color="var(--green)" />
         <Kpi label="Absents" value={absent.length} color={absent.length ? "var(--red)" : "var(--text-dim)"} />
         <Kpi label="Retards" value={late.length} color={late.length ? "var(--amber)" : "var(--text-dim)"} />
-        <Kpi label={isToday ? "Prévus aujourd'hui" : "Prévus ce jour"} value={worksViewDay.length} color="var(--text-dim)" />
+        <Kpi label="Effectif actif" value={active.length} color="var(--text-dim)" />
       </div>
 
       {(restViol.length > 0 || spanViol.length > 0 || weekAlerts.length > 0) && (
@@ -146,8 +145,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
           <tbody>
             {active.map((e) => {
               const d = days[e.id];
-              const worksThisDay = (e.workDays || []).includes(isoWeekday(viewDate));
-              const status = d?.status || (worksThisDay ? "absent" : "off");
+              const status = d?.status || "absent";
               return (
                 <tr key={e.id} style={{ borderBottom: "1px solid var(--ink-3)" }}>
                   <td style={td}><strong>{e.displayName}</strong></td>
