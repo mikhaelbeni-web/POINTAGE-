@@ -1,7 +1,7 @@
 // ============================================================
 // recap.js — Agrégation hebdo & mensuelle à partir des jours.
 // ============================================================
-import { weekKey, classifyWeek, isoWeekday } from "./timeLogic";
+import { weekKey, classifyWeek } from "./timeLogic";
 
 /** Toutes les dates "YYYY-MM-DD" d'un mois (year, month 1-12). */
 export function monthDates(year, month) {
@@ -51,7 +51,6 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
     if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], workedMinutes: 0 };
     const d = byDate[date];
     const leave = leaveByDate[date];
-    const worksToday = (emp.workDays || []).includes(isoWeekday(date));
 
     let status = "off";
     let worked = 0, late = 0, restViolation = false;
@@ -61,7 +60,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
       worked = d.workedMinutes || 0;
       late = d.lateMinutes || 0;
       restViolation = d.restViolation || false;
-    } else if (worksToday) status = "absent";
+    } else status = "absent";
 
     weeksMap[wk].rows.push({
       date, status, worked, late, restViolation, leaveType: leave || null,
@@ -117,7 +116,6 @@ export function buildCadreRecap(emp, days, leaves, year, month) {
     const wk = weekKey(date);
     if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], daysPresent: 0 };
     const d = byDate[date];
-    const worksToday = (emp.workDays || []).includes(isoWeekday(date));
     const fullDayLeave = leaveByDate[date];
 
     let morning = d?.morning || null;
@@ -129,7 +127,7 @@ export function buildCadreRecap(emp, days, leaves, year, month) {
     const fraction = presentHalves * 0.5;
 
     let status = "off";
-    if (morning == null && afternoon == null) status = worksToday ? "absent" : "off";
+    if (morning == null && afternoon == null) status = "absent";
     else if (presentHalves === 2) status = "present";
     else if (presentHalves === 1) status = "partial";
     else status = "leave";

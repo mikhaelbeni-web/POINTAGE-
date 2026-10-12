@@ -66,7 +66,7 @@ export function isoWeekday(dateStr) {
 /**
  * Calcule les métriques d'une journée à partir des badges bruts.
  * @param {Object} p  { arrival, breakOut, breakIn, departure } (Date|ts|null)
- * @param {Object} emp { plannedStart, plannedEnd, workDays, contractType }
+ * @param {Object} emp { plannedStart, plannedEnd, contractType }
  * @param {Object} settings { lateToleranceMinutes }
  * @param {string} dateStr "YYYY-MM-DD"
  * @returns métriques jour
@@ -116,19 +116,17 @@ export function computeDay(p, emp, settings, dateStr) {
 
   // Statut
   let status;
-  const worksToday = (emp.workDays || []).includes(isoWeekday(dateStr));
+  // Pas de planning : un pointage d'arrivée = le salarié travaille ce jour, sinon absent.
   if (arrival != null && departure != null) status = "present";
   else if (arrival != null) status = "incomplete";
-  else if (worksToday) status = "absent";
-  else status = "off";
+  else status = "absent";
 
-  return { workedMinutes, breakMinutes, spanMinutes, spanViolation, lateMinutes, status, worksToday };
+  return { workedMinutes, breakMinutes, spanMinutes, spanViolation, lateMinutes, status };
 }
 
 // --- Journée d'un CADRE : demi-journées, pas d'heures ---------
 // morning / afternoon : "present" | <leaveType> | null (non saisi)
 export function computeCadreDay(halfDays, emp, dateStr) {
-  const worksToday = (emp.workDays || []).includes(isoWeekday(dateStr));
   const m = halfDays.morning || null;
   const a = halfDays.afternoon || null;
 
@@ -136,12 +134,12 @@ export function computeCadreDay(halfDays, emp, dateStr) {
   const dayFraction = presentCount * 0.5; // 0, 0.5 ou 1 jour présent
 
   let status;
-  if (m == null && a == null) status = worksToday ? "absent" : "off";
+  if (m == null && a == null) status = "absent";
   else if (presentCount === 2) status = "present";
   else if (presentCount === 1) status = "partial";
   else status = "leave"; // les deux demi-journées ont un motif d'absence
 
-  return { morning: m, afternoon: a, dayFraction, status, worksToday };
+  return { morning: m, afternoon: a, dayFraction, status };
 }
 
 // --- Alerte repos minimum entre deux jours ------------------
