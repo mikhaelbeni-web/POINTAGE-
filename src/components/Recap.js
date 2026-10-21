@@ -8,6 +8,18 @@ import { leaveLabel } from "./ui";
 
 const now = new Date();
 
+// Réduit chaque fiche pour qu'elle tienne sur une page A4 (≈ 990 px utiles) : on mesure sa hauteur
+// réelle avec la mise en page d'impression, juste avant l'impression.
+function fitPrintSheets() {
+  document.querySelectorAll(".print-sheet").forEach((el) => {
+    el.style.removeProperty("--print-zoom");
+    el.classList.add("print-measure");
+    const h = el.scrollHeight;
+    el.classList.remove("print-measure");
+    el.style.setProperty("--print-zoom", String(Math.min(1, 990 / h)));
+  });
+}
+
 export default function Recap({ employees, sites = [], allowedSiteIds = null }) {
   const [empId, setEmpId] = useState("all");
   const [year, setYear] = useState(now.getFullYear());
@@ -57,6 +69,11 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    window.addEventListener("beforeprint", fitPrintSheets);
+    return () => window.removeEventListener("beforeprint", fitPrintSheets);
+  }, []);
 
   // Si le magasin du salarié sélectionné n'est plus dans le filtre, réinitialiser
   useEffect(() => { setRecaps(null); setStaleNames([]); }, [empId, year, month, selectedSites]);
