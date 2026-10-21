@@ -46,29 +46,51 @@ input, select { font-family: inherit; }
 }
 
 /* ---------- IMPRESSION ---------- */
+/* Mise en page compacte d'une fiche : appliquée à l'impression, et (classe .print-measure)
+   pendant la mesure de sa hauteur juste avant l'impression (voir fitPrintSheets dans Recap.js). */
 @media print {
   @page { size: A4 portrait; margin: 14mm 12mm; }
   body { background: #fff; color: #000; }
   .no-print { display: none !important; }
   .print-only { display: block !important; }
+  .print-sheet { page-break-after: always; zoom: var(--print-zoom, 1); }
+  .print-sheet:last-child { page-break-after: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #eee !important; -webkit-print-color-adjust: exact; }
+}
+@media print, screen {
+  .print-measure { width: 186mm; }
+}
+@media print {
   .print-sheet {
-    page-break-after: always;
-    break-inside: avoid;
-    color: #000;
-    zoom: var(--print-zoom, 1);
-    background: #fff !important;
-    border: none !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
+  break-inside: avoid;
+  color: #000;
+  background: #fff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
   }
   .print-sheet > div { margin-bottom: 2px !important; margin-top: 0 !important; }
   .print-sheet > div > div { margin-bottom: 1px !important; font-size: 10px !important; }
-  .print-sheet table { font-size: 9px !important; }
+  .print-sheet > div:last-child > div > div:first-child { margin-bottom: 26px !important; }
   .print-sheet h2 { font-size: 16px !important; }
-  .print-sheet:last-child { page-break-after: auto; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #444; padding: 0 4px !important; font-size: 9px !important; line-height: 1.25 !important; }
-  th { background: #eee !important; -webkit-print-color-adjust: exact; }
+  .print-sheet table { font-size: 9px !important; width: 100%; border-collapse: collapse; }
+  .print-sheet th, .print-sheet td { border: 1px solid #444; padding: 0 4px !important; font-size: 9px !important; line-height: 1.25 !important; }
 }
+.print-measure.print-sheet {
+  break-inside: avoid;
+  color: #000;
+  background: #fff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  }
+  .print-measure.print-sheet > div { margin-bottom: 2px !important; margin-top: 0 !important; }
+  .print-measure.print-sheet > div > div { margin-bottom: 1px !important; font-size: 10px !important; }
+  .print-measure.print-sheet > div:last-child > div > div:first-child { margin-bottom: 26px !important; }
+  .print-measure.print-sheet h2 { font-size: 16px !important; }
+  .print-measure.print-sheet table { font-size: 9px !important; width: 100%; border-collapse: collapse; }
+  .print-measure.print-sheet th, .print-measure.print-sheet td { border: 1px solid #444; padding: 0 4px !important; font-size: 9px !important; line-height: 1.25 !important; }
 .print-only { display: none; }

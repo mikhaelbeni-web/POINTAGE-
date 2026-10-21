@@ -8,10 +8,16 @@ import { leaveLabel } from "./ui";
 
 const now = new Date();
 
-// Facteur de réduction à l'impression pour que le mois tienne sur une page A4 (≈ 1016 px utiles).
-function printZoom(weeks) {
-  const lines = weeks.reduce((n, w) => n + w.rows.length + 3, 0) + 12; // + en-tête, totaux, signatures
-  return Math.min(1, 940 / (lines * 13));
+// Réduit chaque fiche pour qu'elle tienne sur une page A4 (≈ 990 px utiles) : on mesure sa hauteur
+// réelle avec la mise en page d'impression, juste avant l'impression.
+function fitPrintSheets() {
+  document.querySelectorAll(".print-sheet").forEach((el) => {
+    el.style.removeProperty("--print-zoom");
+    el.classList.add("print-measure");
+    const h = el.scrollHeight;
+    el.classList.remove("print-measure");
+    el.style.setProperty("--print-zoom", String(Math.min(1, 990 / h)));
+  });
 }
 
 export default function Recap({ employees, sites = [], allowedSiteIds = null }) {
@@ -63,6 +69,11 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    window.addEventListener("beforeprint", fitPrintSheets);
+    return () => window.removeEventListener("beforeprint", fitPrintSheets);
+  }, []);
 
   // Si le magasin du salarié sélectionné n'est plus dans le filtre, réinitialiser
   useEffect(() => { setRecaps(null); setStaleNames([]); }, [empId, year, month, selectedSites]);
@@ -148,7 +159,6 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
   const homeSite = emp.siteId;
   return (
     <div className="print-sheet" style={{
-      "--print-zoom": printZoom(weeks),
       background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14,
       padding: 22, marginBottom: 24,
     }}>
@@ -247,7 +257,7 @@ function CadreSheet({ emp, weeks, totals, year, month, sites = [] }) {
   const siteName = (id) => sites.find((s) => s.id === id)?.name || "—";
   const homeSite = emp.siteId;
   return (
-    <div className="print-sheet" style={{ "--print-zoom": printZoom(weeks), background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 22, marginBottom: 24 }}>
+    <div className="print-sheet" style={{ background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 22, marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <h2 style={{ fontSize: 20, fontWeight: 700 }}>{emp.displayName}</h2>
         <div style={{ color: "var(--text-dim)", fontSize: 15 }}>{MONTHS[month - 1]} {year}</div>
