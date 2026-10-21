@@ -45,7 +45,7 @@ input, select { font-family: inherit; }
   * { animation: none !important; transition: none !important; }
 }
 
-/* ---------- IMPRESSION ---------- */
+/* ---------- IMPRESSION (relevé : une page A4 par salarié) ---------- */
 /* Mise en page compacte d'une fiche : appliquée à l'impression, et (classe .print-measure)
    pendant la mesure de sa hauteur juste avant l'impression (voir fitPrintSheets dans Recap.js). */
 @media print {
