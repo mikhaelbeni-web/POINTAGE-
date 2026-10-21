@@ -62,11 +62,13 @@ input, select { font-family: inherit; }
     padding: 0 !important;
     margin: 0 !important;
   }
-  .print-sheet > div { margin-bottom: 4px !important; }
+  .print-sheet > div { margin-bottom: 2px !important; margin-top: 0 !important; }
+  .print-sheet > div > div { margin-bottom: 1px !important; font-size: 10px !important; }
+  .print-sheet table { font-size: 9px !important; }
   .print-sheet h2 { font-size: 16px !important; }
   .print-sheet:last-child { page-break-after: auto; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #444; padding: 1px 5px; font-size: 10px; line-height: 1.3; }
+  th, td { border: 1px solid #444; padding: 0 4px !important; font-size: 9px !important; line-height: 1.25 !important; }
   th { background: #eee !important; -webkit-print-color-adjust: exact; }
 }
 .print-only { display: none; }

@@ -11,7 +11,7 @@ const now = new Date();
 // Facteur de réduction à l'impression pour que le mois tienne sur une page A4 (≈ 1016 px utiles).
 function printZoom(weeks) {
   const lines = weeks.reduce((n, w) => n + w.rows.length + 3, 0) + 12; // + en-tête, totaux, signatures
-  return Math.min(1, 1000 / (lines * 17));
+  return Math.min(1, 940 / (lines * 13));
 }
 
 export default function Recap({ employees, sites = [], allowedSiteIds = null }) {
