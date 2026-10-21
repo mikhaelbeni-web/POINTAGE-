@@ -8,6 +8,12 @@ import { leaveLabel } from "./ui";
 
 const now = new Date();
 
+// Facteur de réduction à l'impression pour que le mois tienne sur une page A4 (≈ 1016 px utiles).
+function printZoom(weeks) {
+  const lines = weeks.reduce((n, w) => n + w.rows.length + 3, 0) + 12; // + en-tête, totaux, signatures
+  return Math.min(1, 1000 / (lines * 17));
+}
+
 export default function Recap({ employees, sites = [], allowedSiteIds = null }) {
   const [empId, setEmpId] = useState("all");
   const [year, setYear] = useState(now.getFullYear());
@@ -142,6 +148,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
   const homeSite = emp.siteId;
   return (
     <div className="print-sheet" style={{
+      "--print-zoom": printZoom(weeks),
       background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14,
       padding: 22, marginBottom: 24,
     }}>
@@ -240,7 +247,7 @@ function CadreSheet({ emp, weeks, totals, year, month, sites = [] }) {
   const siteName = (id) => sites.find((s) => s.id === id)?.name || "—";
   const homeSite = emp.siteId;
   return (
-    <div className="print-sheet" style={{ background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 22, marginBottom: 24 }}>
+    <div className="print-sheet" style={{ "--print-zoom": printZoom(weeks), background: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 22, marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <h2 style={{ fontSize: 20, fontWeight: 700 }}>{emp.displayName}</h2>
         <div style={{ color: "var(--text-dim)", fontSize: 15 }}>{MONTHS[month - 1]} {year}</div>

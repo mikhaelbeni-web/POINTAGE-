@@ -53,11 +53,20 @@ input, select { font-family: inherit; }
   .print-only { display: block !important; }
   .print-sheet {
     page-break-after: always;
+    break-inside: avoid;
     color: #000;
+    zoom: var(--print-zoom, 1);
+    background: #fff !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
+  .print-sheet > div { margin-bottom: 4px !important; }
+  .print-sheet h2 { font-size: 16px !important; }
   .print-sheet:last-child { page-break-after: auto; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #444; padding: 4px 6px; font-size: 11px; }
+  th, td { border: 1px solid #444; padding: 1px 5px; font-size: 10px; line-height: 1.3; }
   th { background: #eee !important; -webkit-print-color-adjust: exact; }
 }
 .print-only { display: none; }
