@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import Planning from "../../components/Planning";
 import Dashboard from "../../components/Dashboard";
+import { Modal } from "../../components/PlanUi";
 import BreakDeclaration from "../../components/BreakDeclaration";
 import { createDemoApi, DEMO_EMPLOYEES, DEMO_SITES } from "../../lib/demoApi";
 import { dateToStr, mondayOf, addDays, plannedWorkMinutes, expectedBreakMinutes, hasPlanning, planSettings } from "../../lib/planLogic";
@@ -15,6 +16,7 @@ export default function Demo() {
   const todayS = dateToStr(new Date());
   const api = useMemo(() => createDemoApi(todayS), [todayS]);
   const [tab, setTab] = useState("planning");
+  const [fix, setFix] = useState(null);
   const [followDate, setFollowDate] = useState(addDays(mondayOf(todayS), -7));
   const mon = mondayOf(todayS);
 
@@ -30,8 +32,16 @@ export default function Demo() {
         <button style={tabBtn(tab === "follow")} onClick={() => setTab("follow")}>Tableau de bord</button>
       </div>
       {tab === "planning" && <Planning employees={DEMO_EMPLOYEES} sites={DEMO_SITES} allowedSiteIds={null} canEdit api={api} managerName="Démo" today={todayS} />}
-      {tab === "follow" && <Dashboard key={followDate} employees={DEMO_EMPLOYEES} sites={DEMO_SITES} allowedSiteIds={null} canEdit source={api.dashboardSource} planApi={api} managerName="Démo" initialDate={followDate} onEditDay={() => {}} />}
+      {tab === "follow" && <Dashboard key={followDate} employees={DEMO_EMPLOYEES} sites={DEMO_SITES} allowedSiteIds={null} canEdit source={api.dashboardSource} planApi={api} managerName="Démo" initialDate={followDate} onEditDay={(e, d) => setFix({ emp: e, date: d })} />}
       {tab === "badge" && <BadgeSim api={api} defaultDate={mon} onSeeFollow={(d) => { setFollowDate(d); setTab("follow"); }} />}
+      {fix && (
+        <Modal title={`Corriger la journée · ${fix.emp.displayName}`} onClose={() => setFix(null)}>
+          <p style={{ color: "var(--text-dim)", fontSize: 14, lineHeight: 1.5 }}>
+            Dans l'application réelle, cette fenêtre permet de corriger les heures du {fix.date} (arrivée, pauses, départ) avec trace du motif. Elle est désactivée dans la démonstration, car elle écrit dans la vraie base.
+          </p>
+          <div style={{ textAlign: "right", marginTop: 14 }}><button style={tabBtn(false)} onClick={() => setFix(null)}>Fermer</button></div>
+        </Modal>
+      )}
       <p className="no-print" style={{ color: "#6b7583", fontSize: 12, marginTop: 24 }}>
         Jeu d'essai : Sophie (planning complet), Karim (matin ou soir selon le jour), Léa (jeudi et vendredi non planifiés), Marc (aucun planning cette semaine), Inès (pointe sans aucun planning).
         Semaine précédente : pointages et déclarations déjà présents (voir « Tableau de bord »).

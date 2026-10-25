@@ -178,8 +178,8 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Travaillé", "Solde pauses", ""].map((h) => (
-                <th key={h} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500 }}>{h}</th>
+              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Travaillé", "Solde pauses", ""].map((h, i, all) => (
+                <th key={h + i} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500, ...(i === all.length - 1 ? stickyEnd : {}) }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -210,9 +210,9 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                       {bal.daysCounted ? (bal.missingTotal === 0 && bal.extraTotal === 0 ? "0 min" : <>{bal.missingTotal > 0 && `−${bal.missingTotal}`}{bal.missingTotal > 0 && bal.extraTotal > 0 && " / "}{bal.extraTotal > 0 && `+${bal.extraTotal}`} min</>) : "—"}
                     </button>
                   </td>
-                  <td style={td}>
+                  <td style={{ ...td, ...stickyEnd }}>
                     {canEdit ? (
-                      <button onClick={() => onEditDay(e, viewDate)} style={{
+                      <button onClick={() => onEditDay && onEditDay(e, viewDate)} style={{
                         fontSize: 13, color: "var(--brass)", padding: "4px 8px",
                       }}>Corriger</button>
                     ) : null}
@@ -252,6 +252,8 @@ function Alert({ color, children }) {
     }}>⚠ {children}</div>
   );
 }
+// Colonne « Corriger » toujours visible, même quand le tableau défile horizontalement.
+const stickyEnd = { position: "sticky", right: 0, background: "var(--ink)", boxShadow: "-8px 0 8px -8px rgba(0,0,0,.6)" };
 const td = { padding: "9px 10px", whiteSpace: "nowrap" };
 const tdInp = { padding: "9px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 14 };
 const navBtn = { padding: "9px 14px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 15, fontWeight: 600 };
