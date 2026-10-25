@@ -14,6 +14,8 @@ import Recap from "../components/Recap";
 import DayEditor from "../components/DayEditor";
 import SitesManagers from "../components/SitesManagers";
 import Tablets from "../components/Tablets";
+import Planning from "../components/Planning";
+import { realApi } from "../lib/planStore";
 import { sendHeartbeat } from "../lib/store";
 import { getDeviceInfo } from "../lib/deviceInfo";
 
@@ -148,7 +150,7 @@ export default function Page() {
   }
 
   const tabs = [
-    ["dashboard", "Tableau de bord"], ["recap", "Récaps & impression"],
+    ["dashboard", "Tableau de bord"], ["planning", "Planning"], ["recap", "Récaps & impression"],
     ...(isAdmin ? [["employees", "Salariés"], ["sites", "Magasins & accès"], ["tablets", "État des tablettes"], ["settings", "Paramètres"]] : []),
   ];
 
@@ -186,7 +188,8 @@ export default function Page() {
         </div>
       </header>
 
-      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
+      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} managerName={session.name} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
+      {tab === "planning" && <Planning employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit api={realApi} managerName={session.name} />}
       {tab === "recap" && <Recap employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "employees" && isAdmin && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "sites" && isAdmin && <SitesManagers sites={sites} managers={managers} employees={employees} />}

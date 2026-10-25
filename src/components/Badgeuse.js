@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { badgePunch, watchDaySite, healDirtyDays, findByMatricule, setCadreHalfDay } from "../lib/store";
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
+import { getSettings } from "../lib/store";
+import { watchPlanningsDate, buildDeclaration, recomputePlanInBackground } from "../lib/planStore";
+import { hasPlanning, plannedWorkMinutes, expectedBreakMinutes } from "../lib/planLogic";
+import BreakDeclaration from "./BreakDeclaration";
 
 // Date LOCALE (jamais toISOString qui bascule en UTC) : sinon en soirée en
 // France, le badgeage risque de s'enregistrer sur le mauvais jour.
@@ -21,6 +25,7 @@ const SHORTCUT = { arrival: "1", breakOut: "2", breakIn: "3", departure: "4" };
 // Sans action pendant ce délai, l'écran employé se referme (évite qu'une session
 // restée ouverte reçoive les chiffres de la personne suivante).
 const IDLE_RESET_MS = 12000;
+const IDLE_RESET_BREAK_MS = 45000; // plus long pendant la déclaration de pause (lecture + saisie)
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
@@ -68,6 +73,11 @@ export default function Badgeuse({ employees, sites }) {
   // l'état à jour tout de suite, sans attendre les allers-retours réseau.
   const [pending, setPending] = useState({});
   const toastTimer = useRef(null);
+  // Planning du jour (écouteur unique, en cache local) et déclaration de pause en cours.
+  // Aucune lecture réseau n'est faite au moment du pointage : la décision est locale.
+  const [plans, setPlans] = useState({});
+  const [planSettings, setPlanSettings] = useState(null);
+  const [breakFor, setBreakFor] = useState(null); // { emp, plan, expected, measured, label }
 
   useEffect(() => {
     setTabletSite(localStorage.getItem(TABLET_SITE_KEY));
@@ -104,6 +114,23 @@ export default function Badgeuse({ employees, sites }) {
     return () => unsub();
   }, [today, tabletSite]);
 
+  // Plannings du jour (un seul jour, jamais le calendrier complet). Un salarié garde son planning
+  // même s'il badge dans un autre magasin. S'ils sont indisponibles (réseau, base lente),
+  // plans reste vide : le pointage fonctionne exactement comme avant, sans déclaration.
+  useEffect(() => {
+    setPlans({});
+    if (!tabletSite) return;
+    let unsub = () => {};
+    try {
+      unsub = watchPlanningsDate(today, (list) => {
+        if (!list) return;
+        const m = {}; list.forEach((p) => (m[p.employeeId] = p)); setPlans(m);
+      });
+    } catch (_) { /* jamais bloquant */ }
+    getSettings().then(setPlanSettings).catch(() => {});
+    return () => unsub();
+  }, [today, tabletSite]);
+
   // Chiffres oubliés sur le pavé : effacés après 15 s d'inactivité.
   useEffect(() => {
     if (!matricule) return;
@@ -114,8 +141,10 @@ export default function Badgeuse({ employees, sites }) {
   // Écran employé : se referme après IDLE_RESET_MS sans touche ni toucher.
   useEffect(() => {
     if (!current) return;
-    let t = setTimeout(() => setCurrent(null), IDLE_RESET_MS);
-    const reset = () => { clearTimeout(t); t = setTimeout(() => setCurrent(null), IDLE_RESET_MS); };
+    const idle = breakFor ? IDLE_RESET_BREAK_MS : IDLE_RESET_MS;
+    const close = () => { setBreakFor(null); setCurrent(null); };
+    let t = setTimeout(close, idle);
+    const reset = () => { clearTimeout(t); t = setTimeout(close, idle); };
     window.addEventListener("keydown", reset);
     window.addEventListener("pointerdown", reset);
     return () => {
@@ -123,7 +152,7 @@ export default function Badgeuse({ employees, sites }) {
       window.removeEventListener("keydown", reset);
       window.removeEventListener("pointerdown", reset);
     };
-  }, [current]);
+  }, [current, breakFor]);
 
   function showToast(text, error = false) {
     setToast({ text, error });
@@ -169,17 +198,46 @@ export default function Badgeuse({ employees, sites }) {
 
   // Confirmation immédiate : l'heure du pointage est celle du clic ; l'enregistrement
   // (badgePunch : une seule écriture groupée) se termine en arrière-plan.
-  function doPunch(type, label) {
+  function doPunch(type, label, decl = null) {
     const emp = current;
     if (!emp) return;
+    // Départ avec planning : la déclaration de pause passe d'abord. Le planning n'est
+    // jamais requis : sans planning (ou temps de pause nul), on pointe immédiatement.
+    if (type === "departure" && !decl && !breakFor) {
+      const plan = plans[emp.id];
+      if (plan && hasPlanning(plan)) {
+        const expected = expectedBreakMinutes(plannedWorkMinutes(plan), planSettings || {});
+        if (expected > 0) {
+          const d = viewDay(emp.id);
+          const bo = d?.breakOut, bi = d?.breakIn;
+          const ms = (t) => (t?.toMillis ? t.toMillis() : t instanceof Date ? t.getTime() : null);
+          const measured = ms(bo) != null && ms(bi) != null ? Math.max(0, Math.round((ms(bi) - ms(bo)) / 60000)) : null;
+          setBreakFor({ emp, plan, expected, measured, label });
+          return;
+        }
+      }
+    }
     const at = new Date();
     addPending(emp.id, type, at);
     showToast(`${emp.displayName} — ${label} ${at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
     setCurrent(null);
-    badgePunch(emp, toLocalDateStr(at), type, at, tabletSite).catch((e) => {
+    setBreakFor(null);
+    const date = toLocalDateStr(at);
+    badgePunch(emp, date, type, at, tabletSite, decl).then(() => {
+      // Calcul des écarts et du compteur : différé, hors parcours de pointage.
+      if (plans[emp.id] && hasPlanning(plans[emp.id])) recomputePlanInBackground(emp.id, date);
+    }).catch((e) => {
       dropPending(emp.id, type);
       showToast(`${emp.displayName} : pointage « ${label} » NON enregistré (${e.message}). Recommencez.`, true);
     });
+  }
+
+  // Confirmation de la déclaration de pause -> départ enregistré avec sa déclaration.
+  function confirmBreak({ status, declaredMinutes }) {
+    const b = breakFor; if (!b) return;
+    const date = todayStr();
+    const decl = buildDeclaration({ siteId: tabletSite, empId: b.emp.id, date, status, declaredMinutes, expectedMinutes: b.expected });
+    doPunch("departure", b.label, decl);
   }
 
   function doHalfDay(half, value, label) {
@@ -254,7 +312,11 @@ export default function Badgeuse({ employees, sites }) {
       )}
 
       {/* 4a. Écran employé (horaire) */}
-      {current && current.category !== "cadre" && (
+      {current && current.category !== "cadre" && breakFor && (
+        <BreakDeclaration emp={current} expected={breakFor.expected} measured={breakFor.measured}
+          onConfirm={confirmBreak} onCancel={() => setBreakFor(null)} />
+      )}
+      {current && current.category !== "cadre" && !breakFor && (
         <ActionScreen emp={current} day={viewDay(current.id)} onPunch={doPunch} onCancel={() => setCurrent(null)} />
       )}
 

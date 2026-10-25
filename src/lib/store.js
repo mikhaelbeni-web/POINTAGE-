@@ -222,7 +222,10 @@ export async function addPunch(empId, date, type, source = "badge", editedBy = n
 // heure dans le jour), sans aucune lecture préalable. Le salarié est déjà connu
 // côté tablette (emp). Le recalcul des indicateurs (heures, retard, repos)
 // part ensuite en arrière-plan : l'écran n'attend pas.
-export async function badgePunch(emp, date, type, at, siteId) {
+// decl (facultatif) = déclaration de pause du départ (voir planStore.buildDeclaration) :
+// elle part dans la MÊME écriture groupée, donc départ et déclaration sont enregistrés
+// ensemble ou pas du tout. Sans planning, decl est absent : comportement inchangé.
+export async function badgePunch(emp, date, type, at, siteId, decl = null) {
   const sid = siteId || emp.siteId || "main";
   const when = Timestamp.fromDate(at instanceof Date ? at : new Date(at));
   const punchRef = doc(collection(db, "punches"));
@@ -239,6 +242,7 @@ export async function badgePunch(emp, date, type, at, siteId) {
     // S'il reste (coupure réseau, tablette rechargée…), un autre poste le refait.
     needsRecompute: true,
   }, { merge: true });
+  if (decl) batch.set(doc(db, "breakDeclarations", `${emp.id}_${date}`), decl); // une déclaration par salarié et par jour
   await batch.commit();
   // Recalcul en arrière-plan (pas d'attente côté écran), avec nouvelles tentatives.
   recomputeInBackground(sid, emp.id, date, emp);

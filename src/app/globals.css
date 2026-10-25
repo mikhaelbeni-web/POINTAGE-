@@ -94,3 +94,14 @@ input, select { font-family: inherit; }
   .print-measure.print-sheet table { font-size: 9px !important; width: 100%; border-collapse: collapse; }
   .print-measure.print-sheet th, .print-measure.print-sheet td { border: 1px solid #444; padding: 0 4px !important; font-size: 9px !important; line-height: 1.25 !important; }
 .print-only { display: none; }
+
+/* ---------- IMPRESSION DU PLANNING HEBDOMADAIRE (A4 paysage) ---------- */
+/* Page nommée : seule la feuille de planning passe en paysage, le relevé mensuel
+   (A4 portrait) n'est pas touché. */
+@page planning { size: A4 landscape; margin: 10mm; }
+@media print {
+  .plan-print { page: planning; width: 100%; }
+  .plan-print section { break-inside: avoid-page; }
+  .plan-print table, .plan-print tr { break-inside: avoid; }
+  .plan-print th, .plan-print td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

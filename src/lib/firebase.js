@@ -11,6 +11,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   getFirestore,
+  connectFirestoreEmulator,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -33,5 +34,12 @@ try {
   });
 } catch (e) {
   _db = getFirestore(app);
+}
+// Tests locaux / de charge : NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+// branche l'app sur l'émulateur Firestore au lieu de la vraie base. Sans cette
+// variable (production), rien ne change.
+const emu = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST;
+if (emu) {
+  try { const [h, p] = emu.split(":"); connectFirestoreEmulator(_db, h, Number(p)); } catch (_) { /* déjà connecté */ }
 }
 export const db = _db;
