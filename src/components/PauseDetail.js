@@ -135,7 +135,7 @@ function Regularise({ row, onSave, onClose }) {
   return (
     <Modal title={`Régulariser la pause du ${row.date}`} onClose={onClose}>
       <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 10 }}>
-        Pause attendue : {fmtMin(row.expectedBreakMinutes)}. L'heure réelle de départ du pointage n'est pas modifiée. Saisir ce que le salarié a réellement déclaré ou confirmé ; la trace (qui, quand, pourquoi) est conservée.
+        Pause attendue : {fmtMin(row.expectedBreakMinutes)}. L'heure réelle de départ du pointage n'est pas modifiée. Saisir ce que le salarié a réellement déclaré ou confirmé ; la trace (qui, quand, motif si renseigné) est conservée.
       </p>
       <select style={{ ...inp, marginBottom: 10 }} value={status} onChange={(e) => setStatus(e.target.value)}>
         <option value="taken">Pauses prévues prises</option>
@@ -143,12 +143,11 @@ function Regularise({ row, onSave, onClose }) {
         <option value="none">Pause non prise</option>
       </select>
       {status === "partial" && <input style={{ ...inp, marginBottom: 10 }} inputMode="numeric" placeholder="Minutes réellement prises" value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/\D/g, ""))} />}
-      <input style={{ ...inp, marginBottom: 10 }} placeholder="Motif (obligatoire) : oubli, panne tablette…" value={note} onChange={(e) => setNote(e.target.value)} />
+      <input style={{ ...inp, marginBottom: 10 }} placeholder="Motif (facultatif) : oubli, panne tablette…" value={note} onChange={(e) => setNote(e.target.value)} />
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button style={btn} onClick={onClose}>Annuler</button>
         <button style={btnPrimary} onClick={() => {
-          if (!note.trim()) return setErr("Le motif est obligatoire.");
           if (status === "partial" && minutes === "") return setErr("Indiquez les minutes prises.");
           onSave({ status, declaredMinutes: status === "partial" ? Number(minutes) : null, note: note.trim() });
         }}>Enregistrer</button>
