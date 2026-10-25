@@ -4,7 +4,7 @@ import { badgePunch, watchDaySite, healDirtyDays, findByMatricule, setCadreHalfD
 import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 import { getSettings } from "../lib/store";
-import { watchPlanningsSite, buildDeclaration, recomputePlanInBackground } from "../lib/planStore";
+import { watchPlanningsDate, buildDeclaration, recomputePlanInBackground } from "../lib/planStore";
 import { hasPlanning, plannedWorkMinutes, expectedBreakMinutes } from "../lib/planLogic";
 import BreakDeclaration from "./BreakDeclaration";
 
@@ -114,14 +114,15 @@ export default function Badgeuse({ employees, sites }) {
     return () => unsub();
   }, [today, tabletSite]);
 
-  // Plannings du jour pour CE magasin. S'ils sont indisponibles (réseau, base lente),
+  // Plannings du jour (un seul jour, jamais le calendrier complet). Un salarié garde son planning
+  // même s'il badge dans un autre magasin. S'ils sont indisponibles (réseau, base lente),
   // plans reste vide : le pointage fonctionne exactement comme avant, sans déclaration.
   useEffect(() => {
     setPlans({});
     if (!tabletSite) return;
     let unsub = () => {};
     try {
-      unsub = watchPlanningsSite(today, tabletSite, (list) => {
+      unsub = watchPlanningsDate(today, (list) => {
         if (!list) return;
         const m = {}; list.forEach((p) => (m[p.employeeId] = p)); setPlans(m);
       });
@@ -224,7 +225,7 @@ export default function Badgeuse({ employees, sites }) {
     const date = toLocalDateStr(at);
     badgePunch(emp, date, type, at, tabletSite, decl).then(() => {
       // Calcul des écarts et du compteur : différé, hors parcours de pointage.
-      if (plans[emp.id] && hasPlanning(plans[emp.id])) recomputePlanInBackground(tabletSite, emp.id, date);
+      if (plans[emp.id] && hasPlanning(plans[emp.id])) recomputePlanInBackground(emp.id, date);
     }).catch((e) => {
       dropPending(emp.id, type);
       showToast(`${emp.displayName} : pointage « ${label} » NON enregistré (${e.message}). Recommencez.`, true);

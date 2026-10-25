@@ -16,7 +16,7 @@ Toutes les durées sont calculées et stockées en **minutes entières**. `36h75
 
 ## Planning, pauses et compteurs (évolution)
 
-Nouveaux onglets **Planning** et **Suivi pauses** dans le mode Manager (accessibles à tous les rôles, dans leur périmètre de magasins).
+Nouvel onglet **Planning** dans le mode Manager, et colonnes planning / pauses intégrées au **Tableau de bord** (accessibles à tous les rôles, dans leur périmètre de magasins). Mêmes filtres que « Récaps & impression » : magasins à cocher + salarié.
 
 - **Planning** (présentation reprise du calendrier Le Belleville, dépôt `Planning-RLB`) : grille semaine, matin et soir **indépendants**, saisie groupée, duplication de semaine, compteur d'heures, horaires habituels du matin et du soir (présaisie, toujours modifiables), impression A4 paysage de la semaine (« Imprimer » ou « Télécharger en PDF » = *Enregistrer au format PDF* dans la fenêtre d'impression). Aucun envoi d'e-mail.
 - Trois états distincts par période : **à planifier** (rien de saisi, jamais assimilé à un repos), **non travaillé**, **travaillé** (arrivée-départ).

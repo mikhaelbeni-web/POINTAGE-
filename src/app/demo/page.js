@@ -4,9 +4,9 @@
 // aucune écriture : recharger la page remet tout à zéro. Les calculs sont les vrais (planLogic).
 import { useMemo, useState } from "react";
 import Planning from "../../components/Planning";
-import PauseFollow from "../../components/PauseFollow";
+import Dashboard from "../../components/Dashboard";
 import BreakDeclaration from "../../components/BreakDeclaration";
-import { createDemoApi, DEMO_EMPLOYEES, DEMO_SITE } from "../../lib/demoApi";
+import { createDemoApi, DEMO_EMPLOYEES, DEMO_SITES } from "../../lib/demoApi";
 import { dateToStr, mondayOf, addDays, plannedWorkMinutes, expectedBreakMinutes, hasPlanning, planSettings } from "../../lib/planLogic";
 
 const tabBtn = (on) => ({ padding: "9px 15px", borderRadius: 10, fontSize: 14, fontWeight: 600, background: on ? "#d8a84b" : "#1a1f28", color: on ? "#1a1204" : "#9aa5b4", border: `1px solid ${on ? "#d8a84b" : "#2f3846"}` });
@@ -22,19 +22,19 @@ export default function Demo() {
     <div style={{ minHeight: "100vh", maxWidth: 1100, margin: "0 auto", padding: "20px 20px 60px" }}>
       <div className="no-print" style={{ padding: "12px 16px", borderRadius: 12, marginBottom: 16, background: "#2a2312", border: "1px solid #d8a84b", color: "#e8ecf2", fontSize: 14, lineHeight: 1.5 }}>
         <b>Page de démonstration — données fictives.</b> Rien n'est enregistré dans la vraie base : tout reste dans cette page et disparaît au rechargement.
-        Les écrans et les calculs sont ceux de la future version (planning, suivi des pauses, déclaration de pause au départ).
+        Les écrans et les calculs sont ceux de la future version (planning, tableau de bord avec pauses, déclaration de pause au départ).
       </div>
       <div className="no-print" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
         <button style={tabBtn(tab === "planning")} onClick={() => setTab("planning")}>Planning</button>
         <button style={tabBtn(tab === "badge")} onClick={() => setTab("badge")}>Pointeuse (départ)</button>
-        <button style={tabBtn(tab === "follow")} onClick={() => setTab("follow")}>Suivi pauses</button>
+        <button style={tabBtn(tab === "follow")} onClick={() => setTab("follow")}>Tableau de bord</button>
       </div>
-      {tab === "planning" && <Planning employees={DEMO_EMPLOYEES} sites={[DEMO_SITE]} allowedSiteIds={null} canEdit api={api} managerName="Démo" today={todayS} />}
-      {tab === "follow" && <PauseFollow key={followDate} employees={DEMO_EMPLOYEES} sites={[DEMO_SITE]} allowedSiteIds={null} canEdit api={api} managerName="Démo" today={followDate} />}
+      {tab === "planning" && <Planning employees={DEMO_EMPLOYEES} sites={DEMO_SITES} allowedSiteIds={null} canEdit api={api} managerName="Démo" today={todayS} />}
+      {tab === "follow" && <Dashboard key={followDate} employees={DEMO_EMPLOYEES} sites={DEMO_SITES} allowedSiteIds={null} canEdit source={api.dashboardSource} planApi={api} managerName="Démo" initialDate={followDate} onEditDay={() => {}} />}
       {tab === "badge" && <BadgeSim api={api} defaultDate={mon} onSeeFollow={(d) => { setFollowDate(d); setTab("follow"); }} />}
       <p className="no-print" style={{ color: "#6b7583", fontSize: 12, marginTop: 24 }}>
         Jeu d'essai : Sophie (planning complet), Karim (matin ou soir selon le jour), Léa (jeudi et vendredi non planifiés), Marc (aucun planning cette semaine), Inès (pointe sans aucun planning).
-        Semaine précédente : pointages et déclarations déjà présents (voir « Suivi pauses »).
+        Semaine précédente : pointages et déclarations déjà présents (voir « Tableau de bord »).
       </p>
     </div>
   );
@@ -89,7 +89,7 @@ function BadgeSim({ api, defaultDate, onSeeFollow }) {
       )}
       <div style={{ color: "#9aa5b4", fontSize: 14, display: "grid", gap: 6 }}>
         {log.map((l, i) => <div key={i}>{l}</div>)}
-        {log.length > 0 && <button style={{ ...tabBtn(false), width: "fit-content" }} onClick={() => onSeeFollow(date)}>Voir ce jour dans le suivi →</button>}
+        {log.length > 0 && <button style={{ ...tabBtn(false), width: "fit-content" }} onClick={() => onSeeFollow(date)}>Voir ce jour dans le tableau de bord →</button>}
       </div>
     </div>
   );

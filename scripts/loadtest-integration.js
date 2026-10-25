@@ -3,9 +3,10 @@
 import { db, doc, setDoc, getDoc, getDocs, collection, query, where, sleep, stats } from "./loadtest-harness";
 import { badgePunch } from "../src/lib/store";
 import {
-  buildDeclaration, recomputePlanInBackground, recomputePlanDay, savePlannings, planId, rebuildEmployeeLedger, recomputeStale,
+  buildDeclaration, recomputePlanInBackground, recomputePlanDay, savePlannings, dayKey, rebuildEmployeeLedger, recomputeStale,
 } from "../src/lib/planStore";
 import { computeBalance } from "../src/lib/planLogic";
+const dayId = (s, e, d) => `${s}_${e}_${d}`;
 
 const runId = Date.now().toString(36);
 const N = Number(process.env.N || 40);
@@ -36,7 +37,7 @@ const punch = async (e, type) => {
   const s = performance.now();
   await badgePunch(e, date, type, new Date(), siteId, decl);
   lat[type].push(performance.now() - s);
-  if (hasPlan) recomputePlanInBackground(siteId, e.id, date);
+  if (hasPlan) recomputePlanInBackground(e.id, date);
 };
 
 // --- A. pointages ET modifications rétroactives en même temps ---------------------------------
@@ -84,7 +85,7 @@ check("A7 historique : les conséquences sont renseignées", hist.filter((h) => 
 const snap = async () => JSON.stringify((await col("pauseLedger")).map((r) => [r.employeeId, r.expectedBreakMinutes, r.declaredBreakMinutes, r.deltaBreakMinutes, r.state]).sort());
 const before = await snap();
 const histCount = (await col("ledgerHistory")).length;
-for (let k = 0; k < 4; k++) await Promise.all(planned.map((e) => recomputePlanDay(siteId, e.id, date, { reason: "test" })));
+for (let k = 0; k < 4; k++) await Promise.all(planned.map((e) => recomputePlanDay(e.id, date, { reason: "test" })));
 check("B1 4 recalculs complets : compteurs identiques (aucun double comptage)", (await snap()) === before);
 check("B2 4 recalculs complets : aucune trace d'historique ajoutée", (await col("ledgerHistory")).length === histCount);
 const sum = (rows) => computeBalance(rows, {}).netBalance;
@@ -92,24 +93,24 @@ const total1 = sum(await col("pauseLedger"));
 
 // --- C. reconstruction depuis les données de référence ---------------------------------------
 await Promise.all((await col("pauseLedger")).map((r) => setDoc(doc(db, "pauseLedger", r.id), { ...r, deltaBreakMinutes: 9999, counted: true })));  // corrompt volontairement
-await Promise.all(planned.map((e) => rebuildEmployeeLedger(siteId, e.id, date, date, "test")));
+await Promise.all(planned.map((e) => rebuildEmployeeLedger(e.id, date, date, "test")));
 check("C1 reconstruction : le compteur redevient exact après corruption", sum(await col("pauseLedger")) === total1 && (await snap()) === before);
 
 // --- D. reprise après calcul différé raté -----------------------------------------------------
 const lateEmp = planned[0];
-await setDoc(doc(db, "pauseLedger", planId(siteId, lateEmp.id, date)), { siteId, employeeId: lateEmp.id, date, computedAtMs: 0, counted: false, deltaBreakMinutes: 0, state: "x" });
-const fixed = await recomputeStale(siteId, date, "test");
-check("D1 reprise : une ligne en retard est recalculée sans action manuelle", fixed >= 1 && (await getDoc(doc(db, "pauseLedger", planId(siteId, lateEmp.id, date)))).data().state === "counted", `${fixed} reprise(s)`);
+await setDoc(doc(db, "pauseLedger", dayKey(lateEmp.id, date)), { siteId, employeeId: lateEmp.id, date, computedAtMs: 0, counted: false, deltaBreakMinutes: 0, state: "x" });
+const fixed = await recomputeStale(planned.map((e) => e.id), date, "test");
+check("D1 reprise : une ligne en retard est recalculée sans action manuelle", fixed >= 1 && (await getDoc(doc(db, "pauseLedger", dayKey(lateEmp.id, date)))).data().state === "counted", `${fixed} reprise(s)`);
 
 // --- E. solde cumulé sur plusieurs jours, sans double comptage --------------------------------
 const e0 = planned[1];
 const d2 = "2026-01-12", d3 = "2026-01-13";
 for (const [d, st] of [[d2, "none"], [d3, "partial"]]) {
-  await setDoc(doc(db, "plannings", planId(siteId, e0.id, d)), { siteId, employeeId: e0.id, date: d, morning: w("08:00", "16:00"), evening: null });
-  await setDoc(doc(db, "days", planId(siteId, e0.id, d)), { siteId, employeeId: e0.id, date: d, arrival: new Date(`${d}T08:00:00`), departure: new Date(`${d}T16:00:00`) });
-  await setDoc(doc(db, "breakDeclarations", planId(siteId, e0.id, d)), buildDeclaration({ siteId, empId: e0.id, date: d, status: st, declaredMinutes: 30, expectedMinutes: 24 }));
+  await setDoc(doc(db, "plannings", dayKey(e0.id, d)), { siteId, employeeId: e0.id, date: d, morning: w("08:00", "16:00"), evening: null });
+  await setDoc(doc(db, "days", dayId(siteId, e0.id, d)), { siteId, employeeId: e0.id, date: d, arrival: new Date(`${d}T08:00:00`), departure: new Date(`${d}T16:00:00`) });
+  await setDoc(doc(db, "breakDeclarations", dayKey(e0.id, d)), buildDeclaration({ siteId, empId: e0.id, date: d, status: st, declaredMinutes: 30, expectedMinutes: 24 }));
 }
-for (let k = 0; k < 3; k++) { await recomputePlanDay(siteId, e0.id, d2); await recomputePlanDay(siteId, e0.id, d3); }
+for (let k = 0; k < 3; k++) { await recomputePlanDay(e0.id, d2); await recomputePlanDay(e0.id, d3); }
 const rows = (await col("pauseLedger")).filter((r) => r.employeeId === e0.id);
 const b = computeBalance(rows, {});
 const r2 = rows.find((r) => r.date === d2), r3 = rows.find((r) => r.date === d3), r1 = rows.find((r) => r.date === date);

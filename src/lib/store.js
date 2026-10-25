@@ -242,7 +242,7 @@ export async function badgePunch(emp, date, type, at, siteId, decl = null) {
     // S'il reste (coupure réseau, tablette rechargée…), un autre poste le refait.
     needsRecompute: true,
   }, { merge: true });
-  if (decl) batch.set(doc(db, "breakDeclarations", dayId(sid, emp.id, date)), decl);
+  if (decl) batch.set(doc(db, "breakDeclarations", `${emp.id}_${date}`), decl); // une déclaration par salarié et par jour
   await batch.commit();
   // Recalcul en arrière-plan (pas d'attente côté écran), avec nouvelles tentatives.
   recomputeInBackground(sid, emp.id, date, emp);

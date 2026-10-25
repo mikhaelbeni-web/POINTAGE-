@@ -1,6 +1,6 @@
 import { runLoadTest, db, doc, setDoc, getDocs, collection, query, where, sleep } from "./loadtest-harness";
 import { badgePunch } from "../src/lib/store";
-import { buildDeclaration, recomputePlanInBackground, planId } from "../src/lib/planStore";
+import { buildDeclaration, recomputePlanInBackground, dayKey } from "../src/lib/planStore";
 
 const runId = process.env.RUN_ID || Date.now().toString(36);
 const N = Number(process.env.N || 60);
@@ -16,7 +16,7 @@ const punch = async (e, date, type, at, siteId) => {
     decl = buildDeclaration({ siteId, empId: e.id, date, status: ["taken", "partial", "none"][i], declaredMinutes: 10, expectedMinutes: 24 });
   }
   await badgePunch(e, date, type, at, siteId, decl);
-  if (hasPlan) recomputePlanInBackground(siteId, e.id, date);
+  if (hasPlan) recomputePlanInBackground(e.id, date);
 };
 
 const res = await runLoadTest({
@@ -24,7 +24,7 @@ const res = await runLoadTest({
   seed: async ({ emps, siteId, date }) => {
     const subset = emps.slice(0, Math.round(emps.length * WITH_PLAN));
     subset.forEach((e) => planned.add(e.id));
-    await Promise.all(subset.map((e) => setDoc(doc(db, "plannings", planId(siteId, e.id, date)), {
+    await Promise.all(subset.map((e) => setDoc(doc(db, "plannings", dayKey(e.id, date)), {
       siteId, employeeId: e.id, date, morning: { state: "worked", start: "09:00", end: "13:00" }, evening: { state: "worked", start: "14:00", end: "18:00" },
     })));
   },
