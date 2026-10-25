@@ -14,6 +14,25 @@ Badgeuse tablette + suivi des heures, temps réel multi-appareils. Next.js (App 
 
 Toutes les durées sont calculées et stockées en **minutes entières**. `36h75` de la convention = 36h + 0,75×60 = **36h45 réelles = 2205 min**.
 
+## Planning, pauses et compteurs (évolution)
+
+Nouveaux onglets **Planning** et **Suivi pauses** dans le mode Manager (accessibles à tous les rôles, dans leur périmètre de magasins).
+
+- **Planning** (présentation reprise du calendrier Le Belleville, dépôt `Planning-RLB`) : grille semaine, matin et soir **indépendants**, saisie groupée, duplication de semaine, compteur d'heures, horaires habituels du matin et du soir (présaisie, toujours modifiables), impression A4 paysage de la semaine (« Imprimer » ou « Télécharger en PDF » = *Enregistrer au format PDF* dans la fenêtre d'impression). Aucun envoi d'e-mail.
+- Trois états distincts par période : **à planifier** (rien de saisi, jamais assimilé à un repos), **non travaillé**, **travaillé** (arrivée-départ).
+- **Pointeuse** : le pointage n'est jamais bloqué par l'absence de planning. Au départ, *si* un planning existe, le salarié voit le temps de pause attendu et déclare : prises / partielle / non prise, avec case de confirmation. « À régulariser » enregistre quand même le départ.
+- **Pause attendue** (Paramètres) : 5 % du temps prévu, avec le minimum légal de 20 min dès 6 h de travail (règle configurable : à valider avec votre convention collective).
+- **Compteur** : somme des écarts journaliers (jamais incrémenté, donc recalculable sans double comptage). Manquantes et supplémentaires séparées par défaut (option « solde net » dans Paramètres).
+- **Modification rétroactive** : historique avant/après avec conséquences, pointages réels intacts.
+
+Données : `plannings`, `planningHistory`, `breakDeclarations`, `pauseLedger`, `ledgerHistory`. Les calculs (`pauseLedger`) sont faits **après** le pointage, en arrière-plan (3 en parallèle au plus), avec reprise automatique.
+
+### Tester sans toucher aux vraies données
+- Page de démonstration : `/demo` (données fictives en mémoire, aucune écriture).
+- Tests de logique : `npm run test:logic`.
+- Tests de charge sur l'émulateur Firestore : voir `scripts/` (`compare-loadtest.sh`, `loadtest-integration.js`) et `scripts/results/`.
+- Pour brancher l'app sur l'émulateur : `NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`.
+
 ## Déploiement
 
 ### 1. Firebase

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:logic": "node --test tests/planLogic.test.mjs"
   },
   "dependencies": {
     "firebase": "^10.13.0",
