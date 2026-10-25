@@ -16,7 +16,7 @@ const punch = async (e, date, type, at, siteId) => {
     decl = buildDeclaration({ siteId, empId: e.id, date, status: ["taken", "partial", "none"][i], declaredMinutes: 10, expectedMinutes: 24 });
   }
   await badgePunch(e, date, type, at, siteId, decl);
-  if (hasPlan) recomputePlanInBackground(e.id, date);
+  if (hasPlan && !process.env.NO_BG) recomputePlanInBackground(e.id, date);
 };
 
 const res = await runLoadTest({
@@ -31,6 +31,7 @@ const res = await runLoadTest({
   // Les calculs différés des arrivées sont terminés avant les départs (une vraie tablette ne traite que ses propres pointages ;
   // ici 60 « tablettes » partagent une seule connexion, ce qui exagère la concurrence).
   afterArrival: async ({ siteId }) => {
+    if (process.env.NO_BG) return;
     const t0 = performance.now();
     while (performance.now() - t0 < 90000) {
       const snap = await getDocs(query(collection(db, "pauseLedger"), where("siteId", "==", siteId)));
@@ -39,6 +40,7 @@ const res = await runLoadTest({
     }
   },
   settle: async ({ emps, siteId, date }) => {
+    if (process.env.NO_BG) return {};
     const t0 = performance.now();
     let rows = [];
     while (performance.now() - t0 < 120000) {
