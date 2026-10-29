@@ -4,6 +4,7 @@ import * as store from "../lib/store";
 import { realApi } from "../lib/planStore";
 import { StatusPill } from "./ui";
 import { useScope, ScopeFilters } from "./PlanUi";
+import WeekView from "./WeekView";
 import PauseDetail, { Pill, signed } from "./PauseDetail";
 import { computeBalance, fmtMin, periodState, hasPlanning, planSettings } from "../lib/planLogic";
 import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek } from "../lib/timeLogic";
@@ -41,7 +42,7 @@ const planText = (p) => {
 };
 
 // `source` (fonctions du store) et `planApi` (planning/pauses) sont injectables : la page /demo les remplace par des données fictives.
-export default function Dashboard({ employees, sites = [], allowedSiteIds = null, canEdit = true, onEditDay, source = store, planApi = realApi, managerName = "", initialDate = null }) {
+export default function Dashboard({ employees, sites = [], allowedSiteIds = null, canEdit = true, onEditDay, source = store, planApi = realApi, managerName = "", initialDate = null, refreshKey = 0 }) {
   const { watchDay, getDaysRange, getSettings, healDirtyDays } = source;
   const [days, setDays] = useState({});
   const [settings, setSettings] = useState(null);
@@ -50,6 +51,8 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
   const [sit, setSit] = useState(null);
   const [balances, setBalances] = useState({});
   const [detail, setDetail] = useState(null);
+  const [mode, setMode] = useState("day"); // "day" | "week"
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(mondayOf(viewDate), i)), [viewDate]);
   const scope = useScope(employees, sites, allowedSiteIds);
   const today = todayStr();
   const isToday = viewDate === today;
@@ -120,16 +123,30 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={() => setViewDate(addDays(viewDate, -1))} style={navBtn} aria-label="Jour précédent">←</button>
-          <input type="date" style={{ ...tdInp, minWidth: 160 }} value={viewDate} max={today} onChange={(e) => setViewDate(e.target.value)} />
-          <button onClick={() => setViewDate(addDays(viewDate, 1))} disabled={isToday} style={{ ...navBtn, opacity: isToday ? 0.4 : 1 }} aria-label="Jour suivant">→</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div role="group" aria-label="Vue" style={{ display: "flex", gap: 0 }}>
+            {[["day", "Jour"], ["week", "Semaine"]].map(([k, l]) => (
+              <button key={k} onClick={() => setMode(k)} aria-pressed={mode === k} style={{
+                ...navBtn, borderRadius: k === "day" ? "9px 0 0 9px" : "0 9px 9px 0", fontSize: 14,
+                background: mode === k ? "color-mix(in srgb, var(--brass) 22%, var(--ink-2))" : "var(--ink-2)", borderColor: mode === k ? "var(--brass)" : "var(--line)",
+              }}>{l}</button>
+            ))}
+          </div>
+          <button onClick={() => setViewDate(addDays(viewDate, mode === "week" ? -7 : -1))} style={navBtn} aria-label={mode === "week" ? "Semaine précédente" : "Jour précédent"}>←</button>
+          <input type="date" style={{ ...tdInp, minWidth: 160 }} value={viewDate} max={today} onChange={(e) => e.target.value && setViewDate(e.target.value)} />
+          <button onClick={() => setViewDate(addDays(viewDate, mode === "week" ? 7 : 1))} disabled={mode === "week" ? mondayOf(viewDate) >= mondayOf(today) : isToday} style={{ ...navBtn, opacity: (mode === "week" ? mondayOf(viewDate) >= mondayOf(today) : isToday) ? 0.4 : 1 }} aria-label={mode === "week" ? "Semaine suivante" : "Jour suivant"}>→</button>
           {!isToday && (
             <button onClick={() => setViewDate(today)} style={{ ...navBtn, color: "var(--brass)" }}>Aujourd'hui</button>
           )}
+          {mode === "week" && <span style={{ color: "var(--text-dim)", fontSize: 14 }}>du {weekDates[0].slice(8)}/{weekDates[0].slice(5, 7)} au {weekDates[6].slice(8)}/{weekDates[6].slice(5, 7)}</span>}
         </div>
       </div>
       <ScopeFilters scope={scope} />
+      {mode === "week" ? (
+        <WeekView staff={active} sites={sites} dates={weekDates} source={source} settings={settings} pset={pset} balances={balances}
+          canEdit={canEdit} onEditDay={onEditDay} onOpenBalance={setDetail} refreshKey={refreshKey} />
+      ) : (
+      <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12, marginBottom: 20 }}>
         <Kpi label="En poste" value={present.length} color="var(--green)" />
         <Kpi label="Absents" value={absent.length} color={absent.length ? "var(--red)" : "var(--text-dim)"} />
@@ -230,6 +247,8 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         Planning, pauses attendues et déclarées viennent du planning du personnel. Sans planning, seules les heures réelles sont conservées : aucun écart n'est calculé.
         Pour voir le détail du compteur de pauses d'un salarié, son historique et régulariser : cliquez sur le bouton de la colonne « Solde pauses » (à droite du tableau, faites défiler si besoin).
       </p>
+      </>
+      )}
       {detail && (
         <PauseDetail emp={detail} api={planApi} settings={pset} canEdit={canEdit} managerName={managerName} date={viewDate}
           onClose={() => setDetail(null)} onChanged={loadPlan} />

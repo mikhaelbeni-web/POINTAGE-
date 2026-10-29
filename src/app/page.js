@@ -44,6 +44,7 @@ export default function Page() {
   const [pinError, setPinError] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [editDay, setEditDay] = useState(null);
+  const [editVersion, setEditVersion] = useState(0);
 
   useEffect(() => {
     const u1 = watchEmployees(setEmployees);
@@ -188,7 +189,7 @@ export default function Page() {
         </div>
       </header>
 
-      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} managerName={session.name} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
+      {tab === "dashboard" && <Dashboard employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit={canEdit} managerName={session.name} refreshKey={editVersion} onEditDay={(e, d) => setEditDay({ emp: e, date: d })} />}
       {tab === "planning" && <Planning employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} canEdit api={realApi} managerName={session.name} />}
       {tab === "recap" && <Recap employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
       {tab === "employees" && isAdmin && <Employees employees={employees} sites={sites} allowedSiteIds={allowedSiteIds} />}
@@ -197,7 +198,7 @@ export default function Page() {
       {tab === "settings" && isAdmin && <Settings />}
 
       {editDay && (
-        <DayEditor emp={editDay.emp} date={editDay.date} managerId={session.name} onClose={() => setEditDay(null)} />
+        <DayEditor emp={editDay.emp} date={editDay.date} managerId={session.name} onClose={() => { setEditDay(null); setEditVersion((v) => v + 1); }} />
       )}
     </div>
   );
