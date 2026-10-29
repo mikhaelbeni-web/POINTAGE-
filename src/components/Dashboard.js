@@ -206,8 +206,11 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   </td>
                   <td style={td}>{d?.workedMinutes ? minutesToHHhMM(d.workedMinutes) : "—"}</td>
                   <td style={td}>
-                    <button onClick={() => setDetail(e)} title="Compteur de pauses" style={{ color: bal.missingTotal > 0 ? "var(--red)" : bal.extraTotal > 0 ? "var(--green)" : "var(--text-dim)", fontSize: 13 }}>
-                      {bal.daysCounted ? (bal.missingTotal === 0 && bal.extraTotal === 0 ? "0 min" : <>{bal.missingTotal > 0 && `−${bal.missingTotal}`}{bal.missingTotal > 0 && bal.extraTotal > 0 && " / "}{bal.extraTotal > 0 && `+${bal.extraTotal}`} min</>) : "—"}
+                    <button onClick={() => setDetail(e)} title="Ouvrir le compteur de pauses" aria-label={`Compteur de pauses de ${e.displayName}`} style={{
+                      color: bal.missingTotal > 0 ? "var(--red)" : bal.extraTotal > 0 ? "var(--green)" : "var(--text)", fontSize: 13, fontWeight: 600,
+                      padding: "5px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--ink-2)", whiteSpace: "nowrap",
+                    }}>
+                      {bal.daysCounted ? (bal.missingTotal === 0 && bal.extraTotal === 0 ? "0 min" : <>{bal.missingTotal > 0 && `−${bal.missingTotal}`}{bal.missingTotal > 0 && bal.extraTotal > 0 && " / "}{bal.extraTotal > 0 && `+${bal.extraTotal}`} min</>) : "Détail"} ›
                     </button>
                   </td>
                   <td style={{ ...td, ...stickyEnd }}>
@@ -225,7 +228,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
       </div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 10 }}>
         Planning, pauses attendues et déclarées viennent du planning du personnel. Sans planning, seules les heures réelles sont conservées : aucun écart n'est calculé.
-        Cliquez le solde d'un salarié pour voir le détail du compteur de pauses, son historique et régulariser.
+        Pour voir le détail du compteur de pauses d'un salarié, son historique et régulariser : cliquez sur le bouton de la colonne « Solde pauses » (à droite du tableau, faites défiler si besoin).
       </p>
       {detail && (
         <PauseDetail emp={detail} api={planApi} settings={pset} canEdit={canEdit} managerName={managerName} date={viewDate}
