@@ -42,7 +42,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
           <tr style={{ color: "var(--text-dim)" }}>
             <th style={th}>Salarié</th>
             {dates.map((d, i) => <th key={d} style={{ ...th, textAlign: "center" }}>{JOURS[i]} {d.slice(8)}/{d.slice(5, 7)}</th>)}
-            <th style={th}>Total semaine</th>
+            <th style={th}>Présence semaine</th>
             <th style={th}>Contrat</th>
             <th style={th}>Écart</th>
             <th style={th}>Solde pauses</th>
