@@ -25,6 +25,8 @@ export default function Settings() {
       breakPercent: Number(s.breakPercent),
       breakLegalMinutes: Number(s.breakLegalMinutes),
       breakLegalThresholdMinutes: Number(s.breakLegalThresholdMinutes),
+      breakLongMinutes: Number(s.breakLongMinutes),
+      breakLongThresholdMinutes: Number(s.breakLongThresholdMinutes),
       breakCompensation: s.breakCompensation,
     });
     invalidatePlanSettings();
@@ -59,7 +61,7 @@ export default function Settings() {
             <option value="legal">Minimum légal seul</option>
           </select>
         </Field>
-        <Field label="Pourcentage du temps de travail prévu" hint="Défaut 5 % (arrondi à la minute supérieure : 8 h → 24 min)">
+        <Field label="Pourcentage du temps de travail prévu" hint="Défaut 5 % = 3 min par heure (arrondi à la minute supérieure : 7 h → 21 min)">
           <input style={{ ...inp, width: 90 }} inputMode="numeric" value={s.breakPercent} onChange={(e) => setS({ ...s, breakPercent: e.target.value.replace(/\D/g, "") })} />
         </Field>
         <Field label="Pause minimale légale (minutes)" hint="Défaut 20 min">
@@ -67,6 +69,12 @@ export default function Settings() {
         </Field>
         <Field label="Seuil du minimum légal (minutes de travail par jour)" hint="Défaut 360 min = 6 h">
           <input style={{ ...inp, width: 90 }} inputMode="numeric" value={s.breakLegalThresholdMinutes} onChange={(e) => setS({ ...s, breakLegalThresholdMinutes: e.target.value.replace(/\D/g, "") })} />
+        </Field>
+        <Field label="Pause longue (minutes)" hint="Défaut 30 min. Remplace le calcul ci-dessus dès le seuil de travail continu. 0 = désactivée">
+          <input style={{ ...inp, width: 90 }} inputMode="numeric" value={s.breakLongMinutes} onChange={(e) => setS({ ...s, breakLongMinutes: e.target.value.replace(/\D/g, "") })} />
+        </Field>
+        <Field label="Seuil de la pause longue (minutes de travail continu)" hint="Défaut 480 min = 8 h d'affilée. Matin et soir séparés par une coupure ne comptent pas comme continus">
+          <input style={{ ...inp, width: 90 }} inputMode="numeric" value={s.breakLongThresholdMinutes} onChange={(e) => setS({ ...s, breakLongThresholdMinutes: e.target.value.replace(/\D/g, "") })} />
         </Field>
         <Field label="Compensation des écarts" hint="Une pause en plus ne rattrape pas automatiquement une pause manquante, sauf si vous choisissez le solde net.">
           <select style={inp} value={s.breakCompensation} onChange={(e) => setS({ ...s, breakCompensation: e.target.value })}>

@@ -19,6 +19,8 @@ export const DEFAULT_PLAN_SETTINGS = {
   breakPercent: 5,           // % du temps de travail prévu
   breakLegalMinutes: 20,     // pause minimale légale
   breakLegalThresholdMinutes: 360, // seuil de temps de travail quotidien (6 h)
+  breakLongMinutes: 30,      // pause longue : REMPLACE le calcul ci-dessus…
+  breakLongThresholdMinutes: 480, // …dès 8 h de travail CONTINU (un seul bloc, sans interruption)
   breakCompensation: "none", // "none" = manquantes et supplémentaires restent séparées ; "net" = solde net
   presetMorning: { start: "08:00", end: "13:00" },
   presetEvening: { start: "14:00", end: "19:00" },
@@ -85,14 +87,41 @@ export function plannedBounds(planning) {
 }
 
 // ---------- Pause attendue ----------
-export function expectedBreakMinutes(plannedMinutes, settings) {
+/** Plus long bloc de travail prévu sans interruption (matin et soir accolés = un seul bloc). */
+export function longestContinuousMinutes(planning) {
+  if (!planning) return 0;
+  const iv = ["morning", "evening"].map((k) => planning[k]).filter((p) => periodState(p) === "worked")
+    .map((p) => { const a = hhmmToMin(p.start); let b = hhmmToMin(p.end); if (b <= a) b += 1440; return [a, b]; })
+    .sort((x, y) => x[0] - y[0]);
+  let best = 0, cur = null;
+  for (const [a, b] of iv) {
+    if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b);
+    else { if (cur) best = Math.max(best, cur[1] - cur[0]); cur = [a, b]; }
+  }
+  if (cur) best = Math.max(best, cur[1] - cur[0]);
+  return best;
+}
+
+/**
+ * Pause attendue. continuousMinutes = plus long bloc continu prévu : à partir du seuil
+ * (8 h par défaut), la pause longue (30 min) remplace le calcul au pourcentage.
+ */
+export function expectedBreakMinutes(plannedMinutes, settings, continuousMinutes = 0) {
   const s = planSettings(settings);
   if (!plannedMinutes || plannedMinutes <= 0) return 0;
+  const longMin = Number(s.breakLongMinutes) || 0, longThr = Number(s.breakLongThresholdMinutes) || 0;
+  if (longMin > 0 && longThr > 0 && (Number(continuousMinutes) || 0) >= longThr) return longMin;
   const pct = Math.ceil((plannedMinutes * Number(s.breakPercent)) / 100);
   const legal = plannedMinutes >= Number(s.breakLegalThresholdMinutes) ? Number(s.breakLegalMinutes) : 0;
   if (s.breakMode === "pct") return pct;
   if (s.breakMode === "legal") return legal;
   return Math.max(pct, legal);
+}
+
+/** Pause attendue d'un planning (0 sans planning). À utiliser partout plutôt que expectedBreakMinutes. */
+export function expectedBreakForPlanning(planning, settings) {
+  if (!hasPlanning(planning)) return 0;
+  return expectedBreakMinutes(plannedWorkMinutes(planning), settings, longestContinuousMinutes(planning));
 }
 
 // ---------- Déclaration de pause ----------
@@ -122,7 +151,7 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
   const s = planSettings(settings);
   const plan = hasPlanning(planning);
   const plannedWork = plannedWorkMinutes(planning);
-  const expectedBreak = plan ? expectedBreakMinutes(plannedWork, s) : 0;
+  const expectedBreak = plan ? expectedBreakMinutes(plannedWork, s, longestContinuousMinutes(planning)) : 0;
 
   const out = {
     date, hasPlanning: plan, planningStatus: planningStatus(planning),

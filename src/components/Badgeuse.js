@@ -5,7 +5,7 @@ import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 import { getSettings } from "../lib/store";
 import { watchPlanningsDate, buildDeclaration, recomputePlanInBackground } from "../lib/planStore";
-import { hasPlanning, plannedWorkMinutes, expectedBreakMinutes } from "../lib/planLogic";
+import { hasPlanning, expectedBreakForPlanning } from "../lib/planLogic";
 import BreakDeclaration from "./BreakDeclaration";
 
 // Date LOCALE (jamais toISOString qui bascule en UTC) : sinon en soirée en
@@ -206,7 +206,7 @@ export default function Badgeuse({ employees, sites }) {
     if (type === "departure" && !decl && !breakFor) {
       const plan = plans[emp.id];
       if (plan && hasPlanning(plan)) {
-        const expected = expectedBreakMinutes(plannedWorkMinutes(plan), planSettings || {});
+        const expected = expectedBreakForPlanning(plan, planSettings || {});
         if (expected > 0) {
           const d = viewDay(emp.id);
           const bo = d?.breakOut, bi = d?.breakIn;
