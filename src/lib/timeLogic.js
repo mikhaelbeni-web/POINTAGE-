@@ -206,5 +206,18 @@ export const DEFAULT_SETTINGS = {
   weeklyOvertimeAlertMinutes: 240, // 4h/semaine
   maxSpanMinutes: 720, // amplitude max 12h
   fullTimeWeeklyMinutes: FULL_TIME_WEEKLY_MINUTES,
+  breakPaid: true, // pause badgée comptée dans les heures (présence, pause comprise)
   timezone: "Europe/Paris",
 };
+
+/**
+ * Heures comptées d'une journée enregistrée (contrat, heures sup., planning, totaux).
+ * Pause payée (défaut) : présence = départ − arrivée, pause comprise.
+ * Sinon : travaillé = présence − pause badgée.
+ */
+export function countedMinutes(d, settings = {}) {
+  if (!d) return 0;
+  if (settings?.breakPaid === false) return d.workedMinutes || 0;
+  if (typeof d.spanMinutes === "number") return d.spanMinutes;
+  return (d.workedMinutes || 0) + (d.breakMinutes || 0);
+}

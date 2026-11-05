@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { classifyWeek, minutesToHHhMM } from "../lib/timeLogic";
+import { classifyWeek, minutesToHHhMM, countedMinutes } from "../lib/timeLogic";
 import { computeBalance } from "../lib/planLogic";
 import { groupBySite } from "./PlanUi";
 
@@ -42,7 +42,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
           <tr style={{ color: "var(--text-dim)" }}>
             <th style={th}>Salarié</th>
             {dates.map((d, i) => <th key={d} style={{ ...th, textAlign: "center" }}>{JOURS[i]} {d.slice(8)}/{d.slice(5, 7)}</th>)}
-            <th style={th}>Travaillé semaine</th>
+            <th style={th}>Présence semaine</th>
             <th style={th}>Contrat</th>
             <th style={th}>Écart</th>
             <th style={th}>Solde pauses</th>
@@ -57,7 +57,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
             ),
             ...g.staff.map((e) => {
               const days = byEmp[e.id] || {};
-              const total = dates.reduce((s, d) => s + (days[d]?.workedMinutes || 0), 0);
+              const total = dates.reduce((s, d) => s + countedMinutes(days[d], settings), 0);
               const cls = classifyWeek(total, e, settings);
               const bal = computeBalance(balances[e.id] || [], pset);
               return (
@@ -66,7 +66,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
                   {dates.map((d) => {
                     const x = days[d];
                     const a = hhmm(x?.arrival), b = hhmm(x?.arrival2 ? x?.departure2 : x?.departure);
-                    const label = x?.workedMinutes ? minutesToHHhMM(x.workedMinutes) : a && !b ? "en cours" : "—";
+                    const label = countedMinutes(x, settings) ? minutesToHHhMM(countedMinutes(x, settings)) : a && !b ? "en cours" : "—";
                     return (
                       <td key={d} style={{ padding: "4px 4px", textAlign: "center" }}>
                         <button disabled={!canEdit} onClick={() => onEditDay && onEditDay(e, d)}

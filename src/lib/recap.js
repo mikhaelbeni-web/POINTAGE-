@@ -1,7 +1,7 @@
 // ============================================================
 // recap.js — Agrégation hebdo & mensuelle à partir des jours.
 // ============================================================
-import { weekKey, classifyWeek } from "./timeLogic";
+import { weekKey, classifyWeek, countedMinutes } from "./timeLogic";
 
 /** Toutes les dates "YYYY-MM-DD" d'un mois (year, month 1-12). */
 export function monthDates(year, month) {
@@ -57,7 +57,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
     if (leave) status = "leave";
     else if (d) {
       status = d.status;
-      worked = d.workedMinutes || 0;
+      worked = countedMinutes(d, settings);
       late = d.lateMinutes || 0;
       restViolation = d.restViolation || false;
     } else status = "absent";

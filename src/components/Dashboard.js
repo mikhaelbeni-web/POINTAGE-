@@ -7,7 +7,7 @@ import { useScope, ScopeFilters } from "./PlanUi";
 import WeekView from "./WeekView";
 import PauseDetail, { Pill, signed } from "./PauseDetail";
 import { computeBalance, fmtMin, periodState, hasPlanning, planSettings } from "../lib/planLogic";
-import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek } from "../lib/timeLogic";
+import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek, countedMinutes } from "../lib/timeLogic";
 
 // Toujours raisonner en date LOCALE (jamais toISOString, qui bascule en UTC
 // et décale le jour en soirée en France).
@@ -79,7 +79,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
       const pool = scope.staff;
       for (const e of pool) {
         const ds = await getDaysRange(e.id, start, today);
-        const worked = ds.reduce((s, d) => s + (d.workedMinutes || 0), 0);
+        const worked = ds.reduce((s, d) => s + countedMinutes(d, settings), 0);
         const cls = classifyWeek(worked, e, settings);
         if (cls.overtimeAlert) {
           alerts.push({ emp: e.displayName, minutes: cls.overtimeMinutes, type: cls.overtimeType });
@@ -195,7 +195,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Travaillé", "Solde pauses", ""].map((h, i, all) => (
+              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Présence", "Solde pauses", ""].map((h, i, all) => (
                 <th key={h + i} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500, ...(i === all.length - 1 ? stickyEnd : {}) }}>{h}</th>
               ))}
             </tr>
@@ -221,7 +221,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   <td style={td}>
                     {c ? (l?.state === "to-regularise" || l?.state === "declaration-missing" ? <Pill s={l.state} /> : <>{l?.declaredBreakMinutes != null ? fmtMin(l.declaredBreakMinutes) : "—"}{l?.counted && l.deltaBreakMinutes !== 0 && <span style={{ marginLeft: 6, color: l.deltaBreakMinutes < 0 ? "var(--red)" : l.deltaBreakMinutes > 0 ? "var(--green)" : "var(--text-faint)", fontSize: 12 }}>{signed(l.deltaBreakMinutes)}</span>}</>) : l && ["to-regularise", "declaration-missing"].includes(l.state) ? <Pill s={l.state} /> : "—"}
                   </td>
-                  <td style={td}>{d?.workedMinutes ? minutesToHHhMM(d.workedMinutes) : "—"}</td>
+                  <td style={td}>{countedMinutes(d, settings) ? minutesToHHhMM(countedMinutes(d, settings)) : "—"}</td>
                   <td style={td}>
                     <button onClick={() => setDetail(e)} title="Ouvrir le compteur de pauses" aria-label={`Compteur de pauses de ${e.displayName}`} style={{
                       color: bal.missingTotal > 0 ? "var(--red)" : bal.extraTotal > 0 ? "var(--green)" : "var(--text)", fontSize: 13, fontWeight: 600,
