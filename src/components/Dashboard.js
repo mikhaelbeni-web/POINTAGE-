@@ -195,7 +195,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Présence", "Solde pauses", ""].map((h, i, all) => (
+              {["Salarié", "Statut", "Planning", "Arrivée", "Pause", "Retour", "Départ", "Durée pause", "Pause attendue", "Pause déclarée", "Travaillé", "Solde pauses", ""].map((h, i, all) => (
                 <th key={h + i} style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", fontWeight: 500, ...(i === all.length - 1 ? stickyEnd : {}) }}>{h}</th>
               ))}
             </tr>
