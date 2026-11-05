@@ -85,20 +85,30 @@ export function computeDay(p, emp, settings, dateStr) {
   let bIn = breakIn;
   if (breakOut != null && bIn != null && bIn < breakOut) bIn += DAY_MS;
 
+  // Journée COUPÉE : 2e bloc (arrivée2/départ2). Le temps entre les deux blocs n'est
+  // ni de la présence ni du travail. Pas de pause badgée : la pause de chaque bloc est
+  // celle déclarée avant le départ (breakDecl1, breakDecl2, en minutes).
+  const arrival2 = toMs(p.arrival2);
+  let departure2 = toMs(p.departure2);
+  if (arrival2 != null && departure2 != null && departure2 < arrival2) departure2 += DAY_MS;
+  const split = arrival2 != null;
+
   let breakMinutes = 0;
   if (breakOut != null && bIn != null) {
     breakMinutes = Math.max(0, Math.round((bIn - breakOut) / 60000));
   }
+  if (split) breakMinutes += (Number(p.breakDecl1) || 0) + (Number(p.breakDecl2) || 0);
 
-  // Amplitude = présence totale (départ - arrivée), pause INCLUSE.
+  // Amplitude = présence totale (départ - arrivée), pause INCLUSE. Journée coupée : somme des blocs.
+  const blockMin = (a, d) => (a != null && d != null ? Math.max(0, Math.round((d - a) / 60000)) : 0);
+  const complete = split ? departure2 != null && departure != null : departure != null;
   let spanMinutes = 0;
-  if (arrival != null && departure != null) {
-    spanMinutes = Math.max(0, Math.round((departure - arrival) / 60000));
-  }
+  if (arrival != null && departure != null) spanMinutes = blockMin(arrival, departure);
+  if (split) spanMinutes += blockMin(arrival2, departure2);
 
   // Temps de travail = amplitude - pause. La pause est TOUJOURS déduite.
   let workedMinutes = 0;
-  if (arrival != null && departure != null) {
+  if (arrival != null && complete) {
     workedMinutes = Math.max(0, spanMinutes - breakMinutes);
   }
 
@@ -117,7 +127,7 @@ export function computeDay(p, emp, settings, dateStr) {
   // Statut
   let status;
   // Pas de planning : un pointage d'arrivée = le salarié travaille ce jour, sinon absent.
-  if (arrival != null && departure != null) status = "present";
+  if (arrival != null && complete) status = "present";
   else if (arrival != null) status = "incomplete";
   else status = "absent";
 

@@ -6,7 +6,7 @@ import { fmtMin } from "../lib/planLogic";
 // Une seule réponse : « J'ai pris ma pause de X minutes » (case à cocher = confirmation).
 // Le bouton « à régulariser » enregistre quand même le départ (panne, oubli, pause non prise ou
 // partielle) et laisse une trace visible par la direction, qui saisit la valeur réelle ensuite.
-export default function BreakDeclaration({ emp, expected, measured, onConfirm, onCancel }) {
+export default function BreakDeclaration({ emp, expected, measured, block = null, onConfirm, onCancel }) {
   const [checked, setChecked] = useState(false);
   const mountedAt = useRef(Date.now());
 
@@ -27,7 +27,7 @@ export default function BreakDeclaration({ emp, expected, measured, onConfirm, o
       <h2 style={{ fontSize: 22, fontWeight: 600 }}>{emp.displayName}</h2>
       <p style={{ color: "var(--text-dim)", fontSize: 15, marginTop: 6 }}>Avant de pointer votre départ</p>
       <div style={{ margin: "16px 0", padding: "14px 16px", borderRadius: 12, background: "var(--ink-2)", border: "1px solid var(--line)" }}>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>Temps de pause attendu pour aujourd'hui : {expected} minutes.</div>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>{block ? `Temps de pause attendu ${block === 1 ? "ce matin" : "cet après-midi"} : ${expected} minutes.` : `Temps de pause attendu pour aujourd'hui : ${expected} minutes.`}</div>
         {measured != null && <div style={{ color: "var(--text-faint)", fontSize: 13, marginTop: 6 }}>Pause badgée aujourd'hui : {fmtMin(measured)}</div>}
       </div>
 

@@ -5,7 +5,7 @@ import { minutesToHHhMM } from "../lib/timeLogic";
 import { LEAVE_TYPES, leaveLabel } from "./ui";
 import { getSettings } from "../lib/store";
 import { watchPlanningsDate, buildDeclaration, recomputePlanInBackground } from "../lib/planStore";
-import { hasPlanning, expectedBreakForPlanning } from "../lib/planLogic";
+import { hasPlanning, expectedBreakForPlanning, expectedBreakBlocks, splitBlocks } from "../lib/planLogic";
 import BreakDeclaration from "./BreakDeclaration";
 
 // Date LOCALE (jamais toISOString qui bascule en UTC) : sinon en soirée en
@@ -21,7 +21,7 @@ const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_UNLOCK_KEY = "pointage_tablet_unlock";
 
 // Raccourcis clavier de l'écran d'action (clavier physique / pavé numérique).
-const SHORTCUT = { arrival: "1", breakOut: "2", breakIn: "3", departure: "4" };
+const SHORTCUT = { arrival: "1", breakOut: "2", breakIn: "3", departure: "4", arrival2: "1", departure2: "4" };
 // Sans action pendant ce délai, l'écran employé se referme (évite qu'une session
 // restée ouverte reçoive les chiffres de la personne suivante).
 const IDLE_RESET_MS = 12000;
@@ -45,8 +45,17 @@ function LiveClock() {
   );
 }
 
-function nextActions(day) {
+function nextActions(day, split = false) {
   const has = (k) => day && day[k];
+  // Journée coupée (planning matin + soir séparés d'au moins 1 h) : Arrivée / Départ deux fois,
+  // aucune pause à badger (elle est confirmée avant chaque Départ).
+  if (split) {
+    if (!has("arrival")) return [["arrival", "Arrivée", "var(--green)"]];
+    if (!has("departure")) return [["departure", "Départ", "var(--red)"]];
+    if (!has("arrival2")) return [["arrival2", "Arrivée (reprise)", "var(--green)"]];
+    if (!has("departure2")) return [["departure2", "Départ", "var(--red)"]];
+    return [];
+  }
   if (!has("arrival")) return [["arrival", "Arrivée", "var(--green)"]];
   // Départ déjà badgé = journée terminée, avec ou sans pause : plus rien à proposer
   // ce jour-là. Le lendemain, la badgeuse repart d'une journée vide (Arrivée).
@@ -203,16 +212,18 @@ export default function Badgeuse({ employees, sites }) {
     if (!emp) return;
     // Départ avec planning : la déclaration de pause passe d'abord. Le planning n'est
     // jamais requis : sans planning (ou temps de pause nul), on pointe immédiatement.
-    if (type === "departure" && !decl && !breakFor) {
+    if ((type === "departure" || type === "departure2") && !decl && !breakFor) {
       const plan = plans[emp.id];
       if (plan && hasPlanning(plan)) {
-        const expected = expectedBreakForPlanning(plan, planSettings || {});
+        // Journée coupée : la pause attendue est celle du bloc qui se termine (matin ou après-midi).
+        const blocks = splitBlocks(plan, planSettings || {}) ? expectedBreakBlocks(plan, planSettings || {}) : null;
+        const expected = blocks ? blocks[type === "departure" ? 0 : 1] : expectedBreakForPlanning(plan, planSettings || {});
         if (expected > 0) {
           const d = viewDay(emp.id);
           const bo = d?.breakOut, bi = d?.breakIn;
           const ms = (t) => (t?.toMillis ? t.toMillis() : t instanceof Date ? t.getTime() : null);
-          const measured = ms(bo) != null && ms(bi) != null ? Math.max(0, Math.round((ms(bi) - ms(bo)) / 60000)) : null;
-          setBreakFor({ emp, plan, expected, measured, label });
+          const measured = !blocks && ms(bo) != null && ms(bi) != null ? Math.max(0, Math.round((ms(bi) - ms(bo)) / 60000)) : null;
+          setBreakFor({ emp, plan, expected, measured, label, type, block: blocks ? (type === "departure" ? 1 : 2) : null });
           return;
         }
       }
@@ -223,7 +234,8 @@ export default function Badgeuse({ employees, sites }) {
     setCurrent(null);
     setBreakFor(null);
     const date = toLocalDateStr(at);
-    badgePunch(emp, date, type, at, tabletSite, decl).then(() => {
+    const isSplit = !!(plans[emp.id] && splitBlocks(plans[emp.id], planSettings || {}));
+    badgePunch(emp, date, type, at, tabletSite, decl, isSplit).then(() => {
       // Calcul des écarts et du compteur : différé, hors parcours de pointage.
       if (plans[emp.id] && hasPlanning(plans[emp.id])) recomputePlanInBackground(emp.id, date);
     }).catch((e) => {
@@ -237,7 +249,7 @@ export default function Badgeuse({ employees, sites }) {
     const b = breakFor; if (!b) return;
     const date = todayStr();
     const decl = buildDeclaration({ siteId: tabletSite, empId: b.emp.id, date, status, declaredMinutes, expectedMinutes: b.expected });
-    doPunch("departure", b.label, decl);
+    doPunch(b.type || "departure", b.label, decl);
   }
 
   function doHalfDay(half, value, label) {
@@ -313,11 +325,11 @@ export default function Badgeuse({ employees, sites }) {
 
       {/* 4a. Écran employé (horaire) */}
       {current && current.category !== "cadre" && breakFor && (
-        <BreakDeclaration emp={current} expected={breakFor.expected} measured={breakFor.measured}
+        <BreakDeclaration emp={current} expected={breakFor.expected} measured={breakFor.measured} block={breakFor.block}
           onConfirm={confirmBreak} onCancel={() => setBreakFor(null)} />
       )}
       {current && current.category !== "cadre" && !breakFor && (
-        <ActionScreen emp={current} day={viewDay(current.id)} onPunch={doPunch} onCancel={() => setCurrent(null)} />
+        <ActionScreen emp={current} day={viewDay(current.id)} split={!!(plans[current.id] && splitBlocks(plans[current.id], planSettings || {}))} onPunch={doPunch} onCancel={() => setCurrent(null)} />
       )}
 
       {/* 4b. Écran cadre (demi-journées) */}
@@ -380,8 +392,8 @@ const padBtn = {
   border: "1px solid var(--line)", color: "var(--text)", fontSize: 26, fontWeight: 500,
 };
 
-function ActionScreen({ emp, day, onPunch, onCancel }) {
-  const actions = nextActions(day);
+function ActionScreen({ emp, day, split, onPunch, onCancel }) {
+  const actions = nextActions(day, split);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   const cb = useRef({});
@@ -411,7 +423,7 @@ function ActionScreen({ emp, day, onPunch, onCancel }) {
   return (
     <div style={{ maxWidth: 460, margin: "6px auto 0", textAlign: "center", width: "100%" }}>
       <h2 style={{ fontSize: 24, fontWeight: 600 }}>{emp.displayName}</h2>
-      <DayStrip day={day} />
+      <DayStrip day={day} split={split} />
       {actions.length === 0 ? (
         <p style={{ color: "var(--green)", fontSize: 18, margin: "30px 0" }}>✓ Journée complète.</p>
       ) : (
@@ -515,12 +527,14 @@ function HalfBtn({ label, state, onClick }) {
   );
 }
 
-function DayStrip({ day }) {
-  const items = [["Arrivée", day?.arrival], ["Pause", day?.breakOut], ["Retour", day?.breakIn], ["Départ", day?.departure]];
+function DayStrip({ day, split }) {
+  const items = split || day?.arrival2
+    ? [["Arrivée", day?.arrival], ["Départ", day?.departure], ["Reprise", day?.arrival2], ["Départ", day?.departure2]]
+    : [["Arrivée", day?.arrival], ["Pause", day?.breakOut], ["Retour", day?.breakIn], ["Départ", day?.departure]];
   return (
     <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-      {items.map(([label, ts]) => (
-        <div key={label} style={{ padding: "8px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", minWidth: 74 }}>
+      {items.map(([label, ts], i) => (
+        <div key={label + i} style={{ padding: "8px 12px", borderRadius: 9, background: "var(--ink-2)", border: "1px solid var(--line)", minWidth: 74 }}>
           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{label}</div>
           <div style={{ fontSize: 16, fontWeight: 600, color: ts ? "var(--text)" : "var(--text-faint)" }}>{ts ? fmtTs(ts) : "—"}</div>
         </div>

@@ -154,7 +154,12 @@ function mergeDays(list) {
   const min = (k) => list.map((d) => ms(d[k])).filter((x) => x != null).reduce((a, b) => (a == null || b < a ? b : a), null);
   const max = (k) => list.map((d) => ms(d[k])).filter((x) => x != null).reduce((a, b) => (a == null || b > a ? b : a), null);
   const withBreak = list.find((d) => d.breakOut && d.breakIn);
-  return { arrival: min("arrival"), departure: max("departure"), breakOut: withBreak?.breakOut || null, breakIn: withBreak?.breakIn || null };
+  const split = list.find((d) => d.arrival2);
+  return {
+    arrival: min("arrival"), departure: max("departure"), breakOut: withBreak?.breakOut || null, breakIn: withBreak?.breakIn || null,
+    // Journée coupée (2e bloc) : on garde ses heures et les pauses déclarées de chaque bloc.
+    ...(split ? { arrival2: split.arrival2, departure2: split.departure2 || null, breakDecl1: split.breakDecl1 ?? null, breakDecl2: split.breakDecl2 ?? null } : {}),
+  };
 }
 
 /**
