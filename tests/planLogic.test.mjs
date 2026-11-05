@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  expectedBreakMinutes, periodState, planningStatus, hasPlanning, plannedWorkMinutes, computePlanDay,
+  expectedBreakMinutes, expectedBreakForPlanning, longestContinuousMinutes, periodState, planningStatus, hasPlanning, plannedWorkMinutes, computePlanDay,
   computeBalance, paginateRows, mondayOf, weeksOfMonth, contractMonthMinutes, DEFAULT_PLAN_SETTINGS,
 } from "../src/lib/planLogic.js";
 
@@ -20,6 +20,32 @@ test("pause attendue : 5 % avec minimum légal de 20 min dès 6 h", () => {
   assert.equal(expectedBreakMinutes(480, { ...S, breakMode: "legal" }), 20);
   assert.equal(expectedBreakMinutes(480, { ...S, breakMode: "pct", breakPercent: 10 }), 48);
   assert.equal(expectedBreakMinutes(481, S), 25);          // arrondi à la minute supérieure
+});
+
+test("pause longue : 30 min dès 8 h de travail continu, remplace le 3 min/h", () => {
+  // 8 h d'affilée -> 30 min (et non 24)
+  assert.equal(longestContinuousMinutes(plan(worked("09:00", "17:00"), { state: "off" })), 480);
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "17:00"), { state: "off" }), S), 30);
+  // 8 h en deux blocs séparés par une coupure -> pas continu -> 3 min/h = 24 min
+  assert.equal(longestContinuousMinutes(plan(worked("09:00", "13:00"), worked("14:00", "18:00"))), 240);
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "13:00"), worked("14:00", "18:00")), S), 24);
+  // matin et soir accolés (13:00 -> 13:00) = un seul bloc de 8 h -> 30 min
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "13:00"), worked("13:00", "17:00")), S), 30);
+  // au-delà de 8 h : 30 min fixes (11 h -> 30, pas 33)
+  assert.equal(expectedBreakForPlanning(plan(worked("08:00", "19:00"), { state: "off" }), S), 30);
+  // 7h59 d'affilée -> règle normale : 3 min/h = 24 (arrondi sup.)
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "16:59"), { state: "off" }), S), 24);
+  // minimum légal conservé : 6 h -> 20 min (et non 18)
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "15:00"), { state: "off" }), S), 20);
+  // service de nuit qui passe minuit : 22:00 -> 06:00 = 8 h continues
+  assert.equal(expectedBreakForPlanning(plan({ state: "off" }, worked("22:00", "06:00")), S), 30);
+  // pause longue désactivée (0) -> retour au 3 min/h
+  assert.equal(expectedBreakForPlanning(plan(worked("09:00", "17:00"), { state: "off" }), { ...S, breakLongMinutes: 0 }), 24);
+  // sans planning -> 0
+  assert.equal(expectedBreakForPlanning(null, S), 0);
+  // même calcul dans la ligne du compteur
+  const r = computePlanDay({ planning: plan(worked("09:00", "17:00"), { state: "off" }), day: { arrival: at("09:00"), departure: at("17:00") }, declaration: { status: "partial", declaredMinutes: 20 }, emp: {}, settings: S, date });
+  assert.deepEqual([r.expectedBreakMinutes, r.deltaBreakMinutes], [30, -10]);
 });
 
 test("trois états distincts : non planifié, non travaillé, travaillé", () => {
@@ -98,9 +124,9 @@ test("arrivée anticipée / tardive avec tolérance", () => {
 });
 
 test("compteur cumulatif : somme des lignes, recalcul sans double comptage", () => {
-  const mk = (d, decl) => computePlanDay({ planning: plan(worked("08:00", "16:00"), null), day: { arrival: at("08:00", d), departure: at("16:00", d) }, declaration: decl, emp: {}, settings: S, date: d });
+  const mk = (d, decl) => computePlanDay({ planning: plan(worked("08:00", "12:00"), worked("13:00", "17:00")), day: { arrival: at("08:00", d), departure: at("16:00", d) }, declaration: decl, emp: {}, settings: S, date: d });
   const rows = [mk("2026-10-19", { status: "none" }), mk("2026-10-20", { status: "partial", declaredMinutes: 30 }), mk("2026-10-21", { status: "taken" })];
-  // 8 h -> 24 min attendues : -24, +6, 0
+  // 8 h en deux services -> 24 min attendues : -24, +6, 0
   const b1 = computeBalance(rows, S);
   assert.deepEqual([b1.missingTotal, b1.extraTotal, b1.netBalance], [24, 6, -18]);
   assert.equal(b1.headline, -24);                           // sans compensation : l'extra ne rattrape pas le manquant
@@ -115,7 +141,7 @@ test("compteur cumulatif : somme des lignes, recalcul sans double comptage", () 
 
 test("modification rétroactive : nouvelle référence, mêmes pointages", () => {
   const day = { arrival: at("08:00"), departure: at("16:00") };
-  const before = computePlanDay({ planning: plan(worked("08:00", "16:00"), null), day, declaration: { status: "partial", declaredMinutes: 20 }, emp: {}, settings: S, date });
+  const before = computePlanDay({ planning: plan(worked("08:00", "12:00"), worked("13:00", "17:00")), day, declaration: { status: "partial", declaredMinutes: 20 }, emp: {}, settings: S, date });
   const after = computePlanDay({ planning: plan(worked("08:00", "12:00"), null), day, declaration: { status: "partial", declaredMinutes: 20 }, emp: {}, settings: S, date });
   assert.equal(before.expectedBreakMinutes, 24); assert.equal(before.deltaBreakMinutes, -4);
   assert.equal(after.expectedBreakMinutes, 12); assert.equal(after.deltaBreakMinutes, 8);   // 4 h : 5 % seul

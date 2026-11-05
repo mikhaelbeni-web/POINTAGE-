@@ -8,7 +8,7 @@ import Dashboard from "../../components/Dashboard";
 import { Modal } from "../../components/PlanUi";
 import BreakDeclaration from "../../components/BreakDeclaration";
 import { createDemoApi, DEMO_EMPLOYEES, DEMO_SITES } from "../../lib/demoApi";
-import { dateToStr, mondayOf, addDays, plannedWorkMinutes, expectedBreakMinutes, hasPlanning, planSettings } from "../../lib/planLogic";
+import { dateToStr, mondayOf, addDays, plannedWorkMinutes, expectedBreakForPlanning, hasPlanning, planSettings } from "../../lib/planLogic";
 
 const tabBtn = (on) => ({ padding: "9px 15px", borderRadius: 10, fontSize: 14, fontWeight: 600, background: on ? "#d8a84b" : "#1a1f28", color: on ? "#1a1204" : "#9aa5b4", border: `1px solid ${on ? "#d8a84b" : "#2f3846"}` });
 
@@ -66,7 +66,7 @@ function BadgeSim({ api, defaultDate, onSeeFollow }) {
   const arrive = () => { api.demoPunch({ empId, date, type: "arrival", time }); say(`✓ ${emp.displayName} — Arrivée ${time} enregistrée${plan && hasPlanning(plan) ? " (planning trouvé : écarts calculés en arrière-plan)" : " (pas de planning : heure réelle conservée, aucun écart calculé)"}.`); };
   const depart = () => {
     if (plan && hasPlanning(plan)) {
-      const expected = expectedBreakMinutes(plannedWorkMinutes(plan), planSettings(api.settings()));
+      const expected = expectedBreakForPlanning(plan, planSettings(api.settings()));
       if (expected > 0) { setStep({ expected, measured: null }); return; }
     }
     api.demoPunch({ empId, date, type: "departure", time });
