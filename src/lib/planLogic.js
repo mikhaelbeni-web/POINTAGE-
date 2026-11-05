@@ -21,6 +21,7 @@ export const DEFAULT_PLAN_SETTINGS = {
   breakLegalThresholdMinutes: 360, // seuil de temps de travail quotidien (6 h)
   breakLongMinutes: 30,      // pause longue : REMPLACE le calcul ci-dessus…
   breakLongThresholdMinutes: 480, // …dès 8 h de travail CONTINU (un seul bloc, sans interruption)
+  splitGapMinutes: 60,       // coupure : un trou d'au moins 1 h sans travail entre matin et soir = journée en 2 blocs
   breakCompensation: "none", // "none" = manquantes et supplémentaires restent séparées ; "net" = solde net
   presetMorning: { start: "08:00", end: "13:00" },
   presetEvening: { start: "14:00", end: "19:00" },
@@ -118,10 +119,55 @@ export function expectedBreakMinutes(plannedMinutes, settings, continuousMinutes
   return Math.max(pct, legal);
 }
 
-/** Pause attendue d'un planning (0 sans planning). À utiliser partout plutôt que expectedBreakMinutes. */
+/**
+ * Journée COUPÉE : matin et soir travaillés avec au moins splitGapMinutes (1 h) sans travail entre les deux.
+ * Retourne [matin, soir] en minutes depuis minuit { start, end, minutes }, sinon null.
+ * Dans ce cas la badgeuse propose Arrivée/Départ deux fois, sans pointage de pause.
+ */
+export function splitBlocks(planning, settings) {
+  if (!planning || periodState(planning.morning) !== "worked" || periodState(planning.evening) !== "worked") return null;
+  const gapMin = Number(planSettings(settings).splitGapMinutes) || 0;
+  if (gapMin <= 0) return null;
+  const mk = (p) => { const start = hhmmToMin(p.start); let end = hhmmToMin(p.end); if (end <= start) end += 1440; return { start, end, minutes: end - start }; };
+  const a = mk(planning.morning), b = mk(planning.evening);
+  const [first, second] = a.start <= b.start ? [a, b] : [b, a];
+  return second.start - first.end >= gapMin ? [first, second] : null;
+}
+
+/** Pause attendue de chaque bloc d'une journée coupée ([m, s]) ou null. Chaque bloc suit la règle habituelle (3 min/h, minimum légal, 30 min dès 8 h d'affilée). */
+export function expectedBreakBlocks(planning, settings) {
+  const blocks = splitBlocks(planning, settings);
+  if (!blocks) return null;
+  const out = blocks.map((b) => expectedBreakMinutes(b.minutes, settings, b.minutes));
+  // Minimum légal du jour (20 min dès 6 h de travail au total) : le complément va au bloc le plus long.
+  const s = planSettings(settings), total = blocks[0].minutes + blocks[1].minutes;
+  const legal = total >= Number(s.breakLegalThresholdMinutes) ? Number(s.breakLegalMinutes) : 0;
+  if (s.breakMode !== "pct" && out[0] + out[1] < legal) out[blocks[0].minutes >= blocks[1].minutes ? 0 : 1] += legal - out[0] - out[1];
+  return out;
+}
+
+/** Pause attendue d'un planning (0 sans planning). Journée coupée : somme des pauses de chaque bloc. À utiliser partout plutôt que expectedBreakMinutes. */
 export function expectedBreakForPlanning(planning, settings) {
   if (!hasPlanning(planning)) return 0;
+  const blocks = expectedBreakBlocks(planning, settings);
+  if (blocks) return blocks[0] + blocks[1];
   return expectedBreakMinutes(plannedWorkMinutes(planning), settings, longestContinuousMinutes(planning));
+}
+
+/**
+ * Déclaration du jour = déclaration du bloc 1 + (facultatif) decl.block2 pour le bloc 2.
+ * Fusion en une seule déclaration : à régulariser si un bloc l'est, "taken" si tout est pris,
+ * sinon "partial" avec la somme des minutes déclarées.
+ */
+export function mergeBlockDeclarations(decl) {
+  if (!decl || !decl.block2) return decl || null;
+  const { block2, ...d1 } = decl;
+  const m1 = declaredBreakMinutes(d1, d1.expectedMinutesAtDeclaration ?? 0);
+  const m2 = declaredBreakMinutes(block2, block2.expectedMinutesAtDeclaration ?? 0);
+  if (m1 == null || m2 == null) return { ...d1, status: "pending", declaredMinutes: null };
+  const allTaken = d1.status === "taken" && block2.status === "taken";
+  return { ...d1, status: allTaken ? "taken" : "partial", declaredMinutes: m1 + m2,
+    expectedMinutesAtDeclaration: (d1.expectedMinutesAtDeclaration ?? 0) + (block2.expectedMinutesAtDeclaration ?? 0) };
 }
 
 // ---------- Déclaration de pause ----------
@@ -151,7 +197,7 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
   const s = planSettings(settings);
   const plan = hasPlanning(planning);
   const plannedWork = plannedWorkMinutes(planning);
-  const expectedBreak = plan ? expectedBreakMinutes(plannedWork, s, longestContinuousMinutes(planning)) : 0;
+  const expectedBreak = plan ? expectedBreakForPlanning(planning, s) : 0;
 
   const out = {
     date, hasPlanning: plan, planningStatus: planningStatus(planning),
@@ -164,12 +210,15 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
     counted: false, state: "no-planning",
   };
 
-  const arrival = toMs(day?.arrival), departure = toMs(day?.departure);
+  // Journée coupée : le départ qui compte est celui du 2e bloc (null tant qu'il n'est pas badgé).
+  const arrival = toMs(day?.arrival);
+  const departure = day?.arrival2 != null ? toMs(day?.departure2) : toMs(day?.departure);
 
   // Temps réellement travaillé (pointages) : calculé ici depuis les heures brutes,
   // donc indépendant de l'ordre des recalculs et séparé des minutes de pause.
   if (arrival != null && departure != null && day) {
-    const m = computeDay({ arrival: day.arrival, breakOut: day.breakOut, breakIn: day.breakIn, departure: day.departure }, emp || {}, settings || {}, date);
+    const m = computeDay({ arrival: day.arrival, breakOut: day.breakOut, breakIn: day.breakIn, departure: day.departure,
+      arrival2: day.arrival2, departure2: day.departure2, breakDecl1: day.breakDecl1, breakDecl2: day.breakDecl2 }, emp || {}, settings || {}, date);
     out.actualWorkMinutes = m.workedMinutes;
   }
 
@@ -195,9 +244,11 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
 
   // Pause : comptée seulement si le départ est enregistré ET la déclaration est définitive.
   if (departure == null) { out.state = arrival != null ? "in-progress" : "no-punch"; return out; }
+  const blockTwoMissing = !!(declaration && splitBlocks(planning, s) && day?.arrival2 != null && !declaration.block2);
+  declaration = mergeBlockDeclarations(declaration);
   const declared = declaredBreakMinutes(declaration, expectedBreak);
   out.declaredBreakMinutes = declared;
-  if (!declaration) { out.state = "declaration-missing"; return out; }
+  if (!declaration || blockTwoMissing) { out.state = "declaration-missing"; return out; }
   if (declared == null) { out.state = "to-regularise"; return out; }
   out.missingBreakMinutes = Math.max(0, expectedBreak - declared);
   out.extraBreakMinutes = Math.max(0, declared - expectedBreak);

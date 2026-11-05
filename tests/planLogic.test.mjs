@@ -168,3 +168,59 @@ test("semaines et contrat mensuel", () => {
   assert.deepEqual(weeksOfMonth(2026, 10), ["2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"]);
   assert.equal(contractMonthMinutes(35 * 60), Math.round((35 * 60 * 52) / 12));
 });
+
+// ---------- Journée coupée (2 blocs, pause non badgée) ----------
+import { splitBlocks, expectedBreakBlocks, mergeBlockDeclarations } from "../src/lib/planLogic.js";
+import { computeDay } from "../src/lib/timeLogic.js";
+
+test("journée coupée : coupure d'au moins 1 h entre matin et soir", () => {
+  assert.ok(splitBlocks(plan(worked("08:00", "13:00"), worked("14:00", "18:00")), S));
+  assert.equal(splitBlocks(plan(worked("08:00", "13:00"), worked("13:30", "18:00")), S), null); // 30 min = pas une coupure
+  assert.equal(splitBlocks(plan(worked("08:00", "13:00"), { state: "off" }), S), null);
+});
+
+test("journée coupée : pause attendue par bloc (3 min/h), somme = pause du jour", () => {
+  const p = plan(worked("08:00", "13:00"), worked("14:00", "18:00"));
+  assert.deepEqual(expectedBreakBlocks(p, S), [15, 12]);
+  assert.equal(expectedBreakForPlanning(p, S), 27);
+  // minimum légal 20 min dès 6 h au total : complément sur le bloc le plus long
+  const q = plan(worked("08:00", "12:00"), worked("14:00", "16:00"));
+  assert.deepEqual(expectedBreakBlocks(q, S), [14, 6]);
+  assert.equal(expectedBreakForPlanning(q, S), 20);
+  // un bloc de 8 h d'affilée -> 30 min pour ce bloc
+  assert.deepEqual(expectedBreakBlocks(plan(worked("06:00", "14:00"), worked("16:00", "18:00")), S), [30, 6]);
+});
+
+test("journée coupée : 13h-14h hors Présence et hors Travaillé, pause déclarée déduite du Travaillé", () => {
+  const m = computeDay({ arrival: at("08:00"), departure: at("13:00"), arrival2: at("14:00"), departure2: at("18:00"), breakDecl1: 15, breakDecl2: 12 }, {}, {}, date);
+  assert.equal(m.spanMinutes, 540);   // Présence 9 h (pas 10 h)
+  assert.equal(m.breakMinutes, 27);
+  assert.equal(m.workedMinutes, 513); // Travaillé 8 h 33
+  assert.equal(m.status, "present");
+  // 2e bloc commencé, pas fini : jour incomplet
+  const inc = computeDay({ arrival: at("08:00"), departure: at("13:00"), arrival2: at("14:00") }, {}, {}, date);
+  assert.equal(inc.status, "incomplete");
+  assert.equal(inc.workedMinutes, 0);
+});
+
+test("journée coupée : le compteur compare la pause déclarée des deux blocs à 27 min", () => {
+  const p = plan(worked("08:00", "13:00"), worked("14:00", "18:00"));
+  const day = { arrival: at("08:00"), departure: at("13:00"), arrival2: at("14:00"), departure2: at("18:00"), breakDecl1: 15, breakDecl2: 12 };
+  const d1 = { status: "taken", declaredMinutes: 15, expectedMinutesAtDeclaration: 15, block2: { status: "taken", declaredMinutes: 12, expectedMinutesAtDeclaration: 12 } };
+  const r = computePlanDay({ planning: p, day, declaration: d1, emp: {}, settings: S, date });
+  assert.equal(r.expectedBreakMinutes, 27);
+  assert.equal(r.declaredBreakMinutes, 27);
+  assert.equal(r.deltaBreakMinutes, 0);
+  assert.equal(r.actualWorkMinutes, 513);
+  assert.equal(r.state, "counted");
+  // matin pris, après-midi non pris (partiel 5 min) -> 20 déclarées, 7 manquantes
+  const d2 = { ...d1, block2: { status: "partial", declaredMinutes: 5, expectedMinutesAtDeclaration: 12 } };
+  const r2 = computePlanDay({ planning: p, day, declaration: d2, emp: {}, settings: S, date });
+  assert.equal(r2.declaredBreakMinutes, 20);
+  assert.equal(r2.missingBreakMinutes, 7);
+  // 2e bloc pointé sans déclaration du bloc 2 -> à compléter, pas compté
+  const r3 = computePlanDay({ planning: p, day, declaration: { status: "taken", declaredMinutes: 15, expectedMinutesAtDeclaration: 15 }, emp: {}, settings: S, date });
+  assert.equal(r3.state, "declaration-missing");
+  // un bloc à régulariser -> tout est à régulariser
+  assert.equal(mergeBlockDeclarations({ ...d1, status: "pending", declaredMinutes: null }).status, "pending");
+});

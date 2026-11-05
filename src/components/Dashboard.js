@@ -215,7 +215,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   <td style={td}>{fmt(d?.arrival)}</td>
                   <td style={td}>{fmt(d?.breakOut)}</td>
                   <td style={td}>{fmt(d?.breakIn)}</td>
-                  <td style={td}>{fmt(d?.departure)}</td>
+                  <td style={td} title={d?.arrival2 ? `Journée coupée : ${fmt(d.departure)} départ, ${fmt(d.arrival2)} reprise` : undefined}>{fmt(d?.arrival2 ? d?.departure2 : d?.departure)}</td>
                   <td style={{ ...td, color: "var(--amber)" }}>{d?.breakMinutes ? minutesToHHhMM(d.breakMinutes) : "—"}</td>
                   <td style={td}>{l && planText(plan) ? fmtMin(l.expectedBreakMinutes) : "—"}</td>
                   <td style={td}>

@@ -65,7 +65,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}><strong>{e.displayName}</strong></td>
                   {dates.map((d) => {
                     const x = days[d];
-                    const a = hhmm(x?.arrival), b = hhmm(x?.departure);
+                    const a = hhmm(x?.arrival), b = hhmm(x?.arrival2 ? x?.departure2 : x?.departure);
                     const label = x?.workedMinutes ? minutesToHHhMM(x.workedMinutes) : a && !b ? "en cours" : "—";
                     return (
                       <td key={d} style={{ padding: "4px 4px", textAlign: "center" }}>

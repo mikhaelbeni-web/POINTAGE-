@@ -22,6 +22,9 @@ function LivePreview({ times }) {
   if (bo != null && bi != null) {
     brk = Math.max(0, (bi < bo ? bi + 1440 : bi) - bo);
   }
+  // Journée coupée : 2e bloc ajouté, l'intervalle entre les deux blocs n'est pas compté.
+  const a2 = toMin(times.arrival2), d2 = toMin(times.departure2);
+  if (a2 != null && d2 != null) span = (span || 0) + (d2 < a2 ? d2 + 1440 - a2 : d2 - a2);
   if (span != null) worked = Math.max(0, span - brk);
 
   return (
@@ -40,7 +43,7 @@ function tsToHHMM(ts) {
 }
 
 export default function DayEditor({ emp, date, managerId, onClose }) {
-  const [times, setTimes] = useState({ arrival: "", breakOut: "", breakIn: "", departure: "" });
+  const [times, setTimes] = useState({ arrival: "", breakOut: "", breakIn: "", departure: "", arrival2: "", departure2: "" });
   const [leaves, setLeaves] = useState([]);
   const [leaveForm, setLeaveForm] = useState({ type: "cp", startDate: date, endDate: date, note: "" });
   const [saving, setSaving] = useState(false);
@@ -52,6 +55,7 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
         setTimes({
           arrival: tsToHHMM(ds[0].arrival), breakOut: tsToHHMM(ds[0].breakOut),
           breakIn: tsToHHMM(ds[0].breakIn), departure: tsToHHMM(ds[0].departure),
+          arrival2: tsToHHMM(ds[0].arrival2), departure2: tsToHHMM(ds[0].departure2),
         });
       }
       setLeaves(await getLeaves(emp.id, date, date));
@@ -63,6 +67,7 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
     await setDayTimes(emp.id, date, {
       arrival: times.arrival || null, breakOut: times.breakOut || null,
       breakIn: times.breakIn || null, departure: times.departure || null,
+      arrival2: times.arrival2 || null, departure2: times.departure2 || null,
     }, managerId);
     setSaving(false);
     onClose();
@@ -88,6 +93,8 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
               <Field label="Départ pause"><input type="time" style={inp} value={times.breakOut} onChange={(e) => setTimes({ ...times, breakOut: e.target.value })} /></Field>
               <Field label="Retour pause"><input type="time" style={inp} value={times.breakIn} onChange={(e) => setTimes({ ...times, breakIn: e.target.value })} /></Field>
               <Field label="Départ"><input type="time" style={inp} value={times.departure} onChange={(e) => setTimes({ ...times, departure: e.target.value })} /></Field>
+              <Field label="2e arrivée (journée coupée)"><input type="time" style={inp} value={times.arrival2} onChange={(e) => setTimes({ ...times, arrival2: e.target.value })} /></Field>
+              <Field label="2e départ (journée coupée)"><input type="time" style={inp} value={times.departure2} onChange={(e) => setTimes({ ...times, departure2: e.target.value })} /></Field>
             </div>
             <LivePreview times={times} />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>

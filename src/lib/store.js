@@ -225,7 +225,10 @@ export async function addPunch(empId, date, type, source = "badge", editedBy = n
 // decl (facultatif) = déclaration de pause du départ (voir planStore.buildDeclaration) :
 // elle part dans la MÊME écriture groupée, donc départ et déclaration sont enregistrés
 // ensemble ou pas du tout. Sans planning, decl est absent : comportement inchangé.
-export async function badgePunch(emp, date, type, at, siteId, decl = null) {
+// split = journée coupée : la pause déclarée de chaque bloc est mémorisée dans le jour
+// (breakDecl1 / breakDecl2, minutes) pour être déduite du temps travaillé ; la déclaration du
+// 2e bloc s'ajoute à celle du jour (champ block2) sans écraser celle du 1er bloc.
+export async function badgePunch(emp, date, type, at, siteId, decl = null, split = false) {
   const sid = siteId || emp.siteId || "main";
   const when = Timestamp.fromDate(at instanceof Date ? at : new Date(at));
   const punchRef = doc(collection(db, "punches"));
@@ -235,14 +238,23 @@ export async function badgePunch(emp, date, type, at, siteId, decl = null) {
     siteId: sid, employeeId: emp.id, date, type, at: when,
     source: "badge", editedBy: null, createdAt: serverTimestamp(),
   });
+  const dayExtra = {};
+  if (split && decl && (type === "departure" || type === "departure2")) {
+    const mins = decl.status === "taken" ? decl.expectedMinutesAtDeclaration : decl.status === "partial" ? decl.declaredMinutes : decl.status === "none" ? 0 : null;
+    dayExtra[type === "departure" ? "breakDecl1" : "breakDecl2"] = mins;
+  }
   batch.set(dayRef, {
-    siteId: sid, employeeId: emp.id, date, [type]: when,
+    siteId: sid, employeeId: emp.id, date, [type]: when, ...dayExtra,
     source: "badge", updatedAt: serverTimestamp(),
     // Marqueur "à recalculer" : effacé uniquement par un recalcul réussi.
     // S'il reste (coupure réseau, tablette rechargée…), un autre poste le refait.
     needsRecompute: true,
   }, { merge: true });
-  if (decl) batch.set(doc(db, "breakDeclarations", `${emp.id}_${date}`), decl); // une déclaration par salarié et par jour
+  if (decl) {
+    const declRef = doc(db, "breakDeclarations", `${emp.id}_${date}`); // une déclaration par salarié et par jour
+    if (type === "departure2") batch.set(declRef, { block2: decl }, { merge: true });
+    else batch.set(declRef, decl);
+  }
   await batch.commit();
   // Recalcul en arrière-plan (pas d'attente côté écran), avec nouvelles tentatives.
   recomputeInBackground(sid, emp.id, date, emp);
@@ -264,7 +276,8 @@ export async function setDayTimes(empId, date, times, editedBy) {
   if (!emp) throw new Error("Salarié introuvable");
   const siteId = emp.siteId || "main";
   const patch = {};
-  for (const k of ["arrival", "breakOut", "breakIn", "departure"]) {
+  for (const k of ["arrival", "breakOut", "breakIn", "departure", "arrival2", "departure2"]) {
+    if (!(k in times)) continue; // anciens appelants : pas de 2e bloc
     const v = times[k];
     patch[k] = v ? Timestamp.fromDate(hhmmToDate(date, v)) : null;
   }
@@ -360,6 +373,8 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
     const times = {
       arrival: cur.arrival || null, breakOut: cur.breakOut || null,
       breakIn: cur.breakIn || null, departure: cur.departure || null,
+      arrival2: cur.arrival2 || null, departure2: cur.departure2 || null,
+      breakDecl1: cur.breakDecl1 ?? null, breakDecl2: cur.breakDecl2 ?? null,
     };
     const m = computeDay(times, emp, settings, date);
     let restViolation = false, restMinutes = null;
