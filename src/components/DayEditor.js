@@ -28,7 +28,7 @@ function LivePreview({ times }) {
     <div style={{ display: "flex", gap: 20, padding: "10px 14px", background: "var(--ink-2)", borderRadius: 9, fontSize: 14 }}>
       <span style={{ color: "var(--text-dim)" }}>Amplitude : <strong style={{ color: "var(--text)" }}>{span != null ? minutesToHHhMM(span) : "—"}</strong></span>
       <span style={{ color: "var(--text-dim)" }}>Pause : <strong style={{ color: "var(--amber)" }}>{brk ? minutesToHHhMM(brk) : "0h00"}</strong></span>
-      <span style={{ color: "var(--text-dim)" }}>Travaillé : <strong style={{ color: "var(--green)" }}>{worked != null ? minutesToHHhMM(worked) : "—"}</strong></span>
+      <span style={{ color: "var(--text-dim)" }}>Heures de présence : <strong style={{ color: "var(--green)" }}>{worked != null ? minutesToHHhMM(worked) : "—"}</strong></span>
     </div>
   );
 }
