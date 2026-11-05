@@ -21,6 +21,7 @@ export default function Settings() {
       weeklyOvertimeAlertMinutes: Number(s.weeklyOvertimeAlertMinutes),
       maxSpanMinutes: Number(s.maxSpanMinutes),
       fullTimeWeeklyMinutes: Number(s.fullTimeWeeklyMinutes),
+      breakPaid: s.breakPaid !== false,
       breakMode: s.breakMode,
       breakPercent: Number(s.breakPercent),
       breakLegalMinutes: Number(s.breakLegalMinutes),
@@ -52,6 +53,12 @@ export default function Settings() {
         {numField("weeklyOvertimeAlertMinutes", "Seuil d'alerte heures supp./sem.", "Défaut 240 min = 4h")}
         {numField("maxSpanMinutes", "Amplitude horaire maximum / jour", "Défaut 720 min = 12h. Au-delà : alerte")}
         {numField("fullTimeWeeklyMinutes", "Base hebdo temps plein", "36h75 convention = 2205 min = 36h45")}
+        <Field label="Heures comptées (contrat, heures sup., totaux)" hint="Présence = départ − arrivée, pause badgée comprise. Travaillé = présence − pause badgée.">
+          <select style={inp} value={s.breakPaid === false ? "worked" : "presence"} onChange={(e) => setS({ ...s, breakPaid: e.target.value === "presence" })}>
+            <option value="presence">Présence : la pause badgée est comptée (pause payée)</option>
+            <option value="worked">Travaillé : la pause badgée est déduite</option>
+          </select>
+        </Field>
 
         <h3 style={{ fontSize: 16, fontWeight: 600, marginTop: 8 }}>Pauses (déclaration au départ)</h3>
         <Field label="Règle de calcul de la pause attendue" hint="Le calcul à 5 % n'est pas la seule obligation : le droit commun impose 20 min consécutives dès 6 h de travail. À valider selon votre convention collective.">

@@ -6,6 +6,7 @@ import {
   strToDate, paginateRows, dateToStr, PRESETS_MORNING, PRESETS_EVENING, EMP_COLORS, parseRange,
   contractMonthMinutes, weeksOfMonth, MONTHS_FR,
 } from "../lib/planLogic";
+import { countedMinutes } from "../lib/timeLogic";
 
 // Planning du personnel : même thème, mêmes filtres et mêmes composants que le reste du logiciel.
 // Fonctionnement repris du calendrier de la résidence Le Belleville (saisie groupée, duplication,
@@ -45,9 +46,9 @@ export default function Planning({ employees, sites, allowedSiteIds, canEdit = t
 
   const actualByEmp = useMemo(() => {
     const m = {};
-    days.forEach((d) => { if (typeof d.workedMinutes === "number") m[d.employeeId] = (m[d.employeeId] || 0) + d.workedMinutes; });
+    days.forEach((d) => { if (typeof d.workedMinutes === "number") m[d.employeeId] = (m[d.employeeId] || 0) + countedMinutes(d, settings || {}); });
     return m;
-  }, [days]);
+  }, [days, settings]);
 
   const mid = strToDate(dates[3]); // le jeudi décide du mois affiché (règle ISO)
   const curMonth = { year: mid.getFullYear(), month: mid.getMonth() + 1 };
@@ -144,7 +145,7 @@ export default function Planning({ employees, sites, allowedSiteIds, canEdit = t
         <Duplicate monday={monday} staff={staff} api={api} onClose={() => setPanel(null)}
           onSave={async (list) => { setPanel(null); await savePlans(withSite(list), "Semaine dupliquée"); }} />
       )}
-      {panel === "hours" && <HoursPanel staff={staff} all={scoped} api={api} curMonth={curMonth} onClose={() => setPanel(null)} />}
+      {panel === "hours" && <HoursPanel staff={staff} all={scoped} api={api} settings={settings} curMonth={curMonth} onClose={() => setPanel(null)} />}
 
       <PrintSheets dates={dates} groups={groups} plans={plans} />
     </div>
@@ -406,7 +407,7 @@ function Duplicate({ monday, staff, api, onSave, onClose }) {
 }
 
 // ---------- Compteur d'heures du mois : contrat / prévu / réel ----------
-function HoursPanel({ staff, all, api, curMonth, onClose }) {
+function HoursPanel({ staff, all, api, settings, curMonth, onClose }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     const from = `${curMonth.year}-${String(curMonth.month).padStart(2, "0")}-01`;
@@ -419,7 +420,7 @@ function HoursPanel({ staff, all, api, curMonth, onClose }) {
       {!data ? <p style={{ color: "var(--text-dim)" }}>Chargement…</p> : staff.map((e) => {
         const c = colorOf(e.id, all);
         const planned = data.p.filter((x) => x.employeeId === e.id).reduce((a, x) => a + plannedWorkMinutes(x), 0);
-        const actual = data.d.filter((x) => x.employeeId === e.id).reduce((a, x) => a + (x.workedMinutes || 0), 0);
+        const actual = data.d.filter((x) => x.employeeId === e.id).reduce((a, x) => a + countedMinutes(x, settings || {}), 0);
         const contract = contractMonthMinutes(e.weeklyContractMinutes || 0);
         const diff = planned - contract, pct = contract ? Math.round((planned / contract) * 100) : 0;
         const col = diff < -60 ? "var(--red)" : diff > 60 ? "var(--amber)" : "var(--green)";
