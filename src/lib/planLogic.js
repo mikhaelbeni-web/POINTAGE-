@@ -170,7 +170,8 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
   // donc indépendant de l'ordre des recalculs et séparé des minutes de pause.
   if (arrival != null && departure != null && day) {
     const m = computeDay({ arrival: day.arrival, breakOut: day.breakOut, breakIn: day.breakIn, departure: day.departure }, emp || {}, settings || {}, date);
-    out.actualWorkMinutes = m.workedMinutes;
+    // Heures comptées : présence (pause comprise) si la pause est payée (défaut), sinon hors pause.
+    out.actualWorkMinutes = settings?.breakPaid === false ? m.workedMinutes : m.spanMinutes;
   }
 
   if (!plan) { out.state = "no-planning"; return out; }

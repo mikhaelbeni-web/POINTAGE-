@@ -5,6 +5,7 @@ import {
   expectedBreakMinutes, expectedBreakForPlanning, longestContinuousMinutes, periodState, planningStatus, hasPlanning, plannedWorkMinutes, computePlanDay,
   computeBalance, paginateRows, mondayOf, weeksOfMonth, contractMonthMinutes, DEFAULT_PLAN_SETTINGS,
 } from "../src/lib/planLogic.js";
+import { computeDay, countedMinutes } from "../src/lib/timeLogic.js";
 
 const S = { ...DEFAULT_PLAN_SETTINGS, lateToleranceMinutes: 5 };
 const date = "2026-10-20";
@@ -167,4 +168,21 @@ test("semaines et contrat mensuel", () => {
   assert.equal(mondayOf("2026-10-19"), "2026-10-19");
   assert.deepEqual(weeksOfMonth(2026, 10), ["2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"]);
   assert.equal(contractMonthMinutes(35 * 60), Math.round((35 * 60 * 52) / 12));
+});
+
+test("heures comptées : présence pause comprise par défaut (pause payée)", () => {
+  // 06:30 -> 12:00 avec 15 min de pause badgée : présence 5h30, travaillé 5h15
+  const raw = { arrival: at("06:30"), breakOut: at("09:30"), breakIn: at("09:45"), departure: at("12:00") };
+  const m = computeDay(raw, {}, S, date);
+  assert.deepEqual([m.spanMinutes, m.breakMinutes, m.workedMinutes], [330, 15, 315]);
+  assert.equal(countedMinutes(m, S), 330);                                  // défaut : 5h30 comptées
+  assert.equal(countedMinutes(m, { ...S, breakPaid: false }), 315);         // option : 5h15
+  assert.equal(countedMinutes({ workedMinutes: 315, breakMinutes: 15 }, S), 330); // ancien document sans spanMinutes
+  assert.equal(countedMinutes(null, S), 0);
+  // écart au planning : 06:30-12:00 prévu = 5h30, compté 5h30 -> aucun manque
+  const pl = plan(worked("06:30", "12:00"), { state: "off" });
+  const r = computePlanDay({ planning: pl, day: raw, declaration: { status: "taken" }, emp: {}, settings: S, date });
+  assert.deepEqual([r.actualWorkMinutes, r.undertimeMinutes, r.overtimeMinutes], [330, 0, 0]);
+  const r2 = computePlanDay({ planning: pl, day: raw, declaration: { status: "taken" }, emp: {}, settings: { ...S, breakPaid: false }, date });
+  assert.deepEqual([r2.actualWorkMinutes, r2.undertimeMinutes], [315, 15]);
 });
