@@ -178,7 +178,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-                {["Date", "Magasin", "Arrivée", "Départ", "Pause", "Présence", "Statut"].map((h) => (
+                {["Date", "Magasin", "Arrivée", "Départ", "Pause", "Travaillé", "Statut"].map((h) => (
                   <th key={h} style={cellH}>{h}</th>
                 ))}
               </tr>
@@ -215,7 +215,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
 
       <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 8 }}>⚑ = pointage dans un magasin autre que le magasin de rattachement</div>
       <div style={{ marginTop: 8, padding: "12px 0", borderTop: "2px solid var(--line)", display: "flex", gap: 24, flexWrap: "wrap", fontSize: 14 }}>
-        <Total label="Total heures de présence" value={minutesToHHhMM(totals.workedMinutes)} />
+        <Total label="Total heures travaillées" value={minutesToHHhMM(totals.workedMinutes)} />
         <Total label={totals.overtimeType === "complementary" ? "H. complémentaires" : "H. supplémentaires"} value={minutesToHHhMM(totals.overtimeMinutes)} />
         <Total label="Absences" value={String(totals.absences)} />
       </div>
