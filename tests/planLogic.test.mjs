@@ -270,3 +270,20 @@ test("journée coupée saisie en Départ pause / Retour pause : la coupure n'est
     2026, 10, [{ date, hasPlanning: true, expectedBreakMinutes: 24, declaredBreakMinutes: null, counted: false, state: "declaration-missing" }]);
   assert.deepEqual([rec2.totals.breakTaken, rec2.totals.breakExpected, rec2.totals.breakPending], [0, 24, 1]);
 });
+
+test("jour pointé alors que le planning prévoit repos : « hors planning », rien à régulariser", async () => {
+  const { ledgerState, isPendingRow } = await import("../src/lib/planLogic.js");
+  const { pauseOfDay } = await import("../src/lib/recap.js");
+  const d = "2026-11-02";
+  const repos = plan({ state: "off" }, { state: "off" });
+  const r = computePlanDay({ planning: repos, day: { arrival: at("08:00", d), departure: at("14:04", d) }, declaration: null, emp: {}, settings: S, date: d });
+  assert.deepEqual([r.state, r.expectedBreakMinutes, r.counted, r.actualWorkMinutes], ["off-plan", 0, false, 364]);
+  // ancienne ligne enregistrée avant la correction : lue comme hors planning
+  const old = { hasPlanning: true, plannedWorkMinutes: 0, expectedBreakMinutes: 0, state: "declaration-missing" };
+  assert.equal(ledgerState(old), "off-plan");
+  assert.equal(isPendingRow(old), false);
+  assert.equal(computeBalance([{ ...old, date: d }], S).pendingDays, 0);
+  assert.deepEqual(pauseOfDay({ breakMinutes: 0 }, old), { breakTaken: null, breakExpected: null, breakPending: false, offPlan: true });
+  // un vrai jour planifié sans déclaration reste à régulariser
+  assert.equal(isPendingRow({ hasPlanning: true, plannedWorkMinutes: 360, state: "declaration-missing" }), true);
+});

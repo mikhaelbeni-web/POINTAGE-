@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { inp, btnPrimary, btnGhost, Modal } from "./PlanUi";
-import { computeBalance, fmtMin, periodState, hasPlanning, strToDate } from "../lib/planLogic";
+import { computeBalance, fmtMin, periodState, hasPlanning, strToDate, ledgerState, isPendingRow } from "../lib/planLogic";
 
 const btn = btnGhost;
 export const signed = (m) => (m == null ? "—" : m === 0 ? "0 min" : `${m > 0 ? "+" : "−"}${fmtMin(Math.abs(m))}`);
@@ -17,6 +17,7 @@ export const STATE = {
   "in-progress": ["En cours", "var(--blue)"],
   "no-punch": ["Pas de pointage", "var(--text-faint)"],
   "no-planning": ["Sans planning", "var(--text-faint)"],
+  "off-plan": ["Travaillé hors planning", "var(--text-dim)"],
 };
 export function Pill({ s }) {
   const [t, c] = STATE[s] || [s, "var(--text-faint)"];
@@ -39,7 +40,7 @@ export default function PauseDetail({ emp, api, settings, canEdit, managerName, 
   useEffect(() => { if (openLedger) api.getLedgerHistory(openLedger).then(setLedgerHist); }, [api, openLedger]);
 
   const bal = useMemo(() => computeBalance(rows || [], settings), [rows, settings]);
-  const pending = (rows || []).filter((r) => r.state === "to-regularise" || r.state === "declaration-missing");
+  const pending = (rows || []).filter(isPendingRow);
   let run = 0;
 
   return (
@@ -68,12 +69,12 @@ export default function PauseDetail({ emp, api, settings, canEdit, managerName, 
                     <tr key={r.id} style={{ borderTop: "1px solid var(--line)" }}>
                       <td style={{ padding: 6 }}>{strToDate(r.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</td>
                       <td style={{ padding: 6 }}>{fmtMin(r.expectedBreakMinutes)}</td>
-                      <td style={{ padding: 6 }}>{r.declaredBreakMinutes != null ? fmtMin(r.declaredBreakMinutes) : <Pill s={r.state} />}</td>
+                      <td style={{ padding: 6 }}>{r.declaredBreakMinutes != null ? fmtMin(r.declaredBreakMinutes) : <Pill s={ledgerState(r)} />}</td>
                       <td style={{ padding: 6, color: r.deltaBreakMinutes < 0 ? "var(--red)" : r.deltaBreakMinutes > 0 ? "var(--green)" : "var(--text)" }}>{r.counted ? signed(r.deltaBreakMinutes) : "—"}</td>
                       <td style={{ padding: 6 }}>{r.counted ? signed(run) : ""}</td>
                       <td style={{ padding: 6 }}>
                         <button style={{ color: "var(--brass)" }} onClick={() => setOpenLedger(openLedger === r.id ? null : r.id)}>historique</button>
-                        {canEdit && (r.state === "to-regularise" || r.state === "declaration-missing") && <button style={{ color: "var(--amber)", marginLeft: 8 }} onClick={() => setReg(r)}>régulariser</button>}
+                        {canEdit && isPendingRow(r) && <button style={{ color: "var(--amber)", marginLeft: 8 }} onClick={() => setReg(r)}>régulariser</button>}
                       </td>
                     </tr>
                   );

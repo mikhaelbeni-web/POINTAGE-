@@ -67,6 +67,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
               const pz = dates.map((d) => pauseOfDay(days[d], led[d]));
               const pTaken = pz.reduce((s, p) => s + (p.breakTaken || 0), 0), pExp = pz.reduce((s, p) => s + (p.breakExpected || 0), 0);
               const pPending = pz.filter((p) => p.breakPending).length;
+              const pOff = pz.filter((p) => p.offPlan).length;
               return (
                 <tr key={e.id} style={{ borderBottom: "1px solid var(--ink-3)" }}>
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}><strong>{e.displayName}</strong></td>
@@ -96,6 +97,7 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap", color: pTaken < pExp ? "var(--amber)" : "var(--text)" }}>
                     {pTaken || pExp ? `${minutesToHHhMM(pTaken)} / ${minutesToHHhMM(pExp)}` : "—"}
                     {pPending > 0 && <div style={{ fontSize: 11, color: "var(--amber)" }}>{pPending} j à régulariser</div>}
+                    {pOff > 0 && <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{pOff} j hors planning</div>}
                   </td>
                   <td style={{ padding: "9px 10px" }}>
                     <button onClick={() => onOpenBalance(e)} aria-label={`Compteur de pauses de ${e.displayName}`} style={{
