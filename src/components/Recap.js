@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { getDaysRangeHealed, getLeaves, getSettings } from "../lib/store";
 import { buildMonthlyRecap, monthBounds } from "../lib/recap";
 import { minutesToHHhMM } from "../lib/timeLogic";
-import { getLedgerRows } from "../lib/planStore";
+import { getLedgerRows, realApi } from "../lib/planStore";
 import { inp, btnPrimary, btnGhost } from "./Employees";
 import { leaveLabel } from "./ui";
 
@@ -55,6 +55,8 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         : scoped.filter((e) => e.id === empId);
       const out = [];
       const stale = [];
+      let allPlans = [];
+      try { allPlans = await realApi.getPlannings(start, end); } catch (_) { /* planning indisponible : réel seul */ }
       for (const emp of targets) {
         // Recalcule d'abord les jours restés en suspens (coupure réseau…).
         const { days, stale: n } = await getDaysRangeHealed(emp, start, end);
@@ -62,7 +64,7 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         const leaves = await getLeaves(emp.id, start, end);
         let ledger = [];
         try { ledger = (await getLedgerRows(emp.id)).filter((l) => l.date >= start && l.date <= end); } catch (_) { /* pauses indisponibles : heures quand même */ }
-        out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger) });
+        out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger, allPlans.filter((p) => p.employeeId === emp.id)) });
       }
       setStaleNames(stale);
       setRecaps(out);
@@ -181,7 +183,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-                {["Date", "Magasin", "Arrivée", "Départ", "Pause prise / attendue", "Présence", "Statut"].map((h) => (
+                {["Date", "Magasin", "Arrivée", "Départ", "Pause prise / attendue", "Prévu", "Présence", "Statut"].map((h) => (
                   <th key={h} style={cellH}>{h}</th>
                 ))}
               </tr>
@@ -198,6 +200,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
                   <td style={cell}>{fmt(r.arrival)}{r.arrival2 && <> · {fmt(r.arrival2)}</>}</td>
                   <td style={cell}>{fmt(r.departure)}{r.arrival2 && <> · {fmt(r.departure2)}</>}</td>
                   <td style={cell}>{pauseText(r)}</td>
+                  <td style={{ ...cell, color: "var(--text-dim)" }}>{r.planned ? minutesToHHhMM(r.planned) : "—"}</td>
                   <td style={cell}>{r.worked ? minutesToHHhMM(r.worked) : "—"}</td>
                   <td style={cell}>{statusText(r)}</td>
                 </tr>
@@ -205,6 +208,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
               <tr style={{ fontWeight: 600 }}>
                 <td style={cell} colSpan={4}>Total semaine</td>
                 <td style={cell}>{w.breakExpected || w.breakTaken ? `${minutesToHHhMM(w.breakTaken)} / ${minutesToHHhMM(w.breakExpected)}` : "—"}</td>
+                <td style={cell}>{w.plannedMinutes ? minutesToHHhMM(w.plannedMinutes) : "—"}</td>
                 <td style={cell}>{minutesToHHhMM(w.workedMinutes)}</td>
                 <td style={cell}>
                   {w.overtimeMinutes > 0
@@ -220,6 +224,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
       <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 8 }}>⚑ = pointage dans un magasin autre que le magasin de rattachement</div>
       <div style={{ marginTop: 8, padding: "12px 0", borderTop: "2px solid var(--line)", display: "flex", gap: 24, flexWrap: "wrap", fontSize: 14 }}>
         <Total label="Total heures de présence" value={minutesToHHhMM(totals.workedMinutes)} />
+        <Total label="Prévu au planning (écart)" value={totals.plannedMinutes ? `${minutesToHHhMM(totals.plannedMinutes)} (${totals.workedMinutes - totals.plannedMinutes >= 0 ? "+" : "−"}${minutesToHHhMM(Math.abs(totals.workedMinutes - totals.plannedMinutes))})` : "—"} />
         <Total label={totals.overtimeType === "complementary" ? "H. complémentaires" : "H. supplémentaires"} value={minutesToHHhMM(totals.overtimeMinutes)} />
         <Total label="Absences" value={String(totals.absences)} />
         <Total label="Pauses prises / attendues (3 min/h = 5 %)" value={`${minutesToHHhMM(totals.breakTaken)} / ${minutesToHHhMM(totals.breakExpected)}${totals.breakPending ? ` · ${totals.breakPending} j à régulariser` : ""}`} />

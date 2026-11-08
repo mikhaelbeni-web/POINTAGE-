@@ -143,7 +143,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
       </div>
       <ScopeFilters scope={scope} />
       {mode === "week" ? (
-        <WeekView staff={active} sites={sites} dates={weekDates} source={source} settings={settings} pset={pset} balances={balances}
+        <WeekView staff={active} sites={sites} dates={weekDates} source={source} planApi={planApi} settings={settings} pset={pset} balances={balances}
           canEdit={canEdit} onEditDay={onEditDay} onOpenBalance={setDetail} refreshKey={refreshKey} />
       ) : (
       <>
