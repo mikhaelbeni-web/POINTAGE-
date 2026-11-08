@@ -242,3 +242,31 @@ test("heures comptées : présence pause comprise par défaut (pause payée)", (
   const r2 = computePlanDay({ planning: pl, day: raw, declaration: { status: "taken" }, emp: {}, settings: { ...S, breakPaid: false }, date });
   assert.deepEqual([r2.actualWorkMinutes, r2.undertimeMinutes], [315, 15]);
 });
+
+test("journée coupée saisie en Départ pause / Retour pause : la coupure n'est ni présence ni travail", async () => {
+  const { coupureAsBlocks } = await import("../src/lib/planLogic.js");
+  const { buildMonthlyRecap } = await import("../src/lib/recap.js");
+  const p = plan(worked("09:00", "13:00"), worked("14:00", "18:00"));
+  const raw = { arrival: at("09:00"), breakOut: at("13:00"), breakIn: at("14:00"), departure: at("18:00") };
+  // Avant : 9 h de présence (la coupure 13-14 comptée comme pause payée)
+  assert.equal(computeDay(raw, {}, S, date).spanMinutes, 540);
+  // Après : planning coupé -> deux blocs, 8 h de présence, 8 h travaillées
+  const m = computeDay(coupureAsBlocks(raw, p, S), {}, S, date);
+  assert.deepEqual([m.spanMinutes, m.workedMinutes, m.breakMinutes, m.status], [480, 480, 0, "present"]);
+  // Planning continu (09-13 + 13-17) : la pause badgée reste une pause, heures inchangées
+  assert.equal(coupureAsBlocks(raw, plan(worked("09:00", "13:00"), worked("13:00", "17:00")), S), raw);
+  // Sans planning : inchangé
+  assert.equal(coupureAsBlocks(raw, null, S), raw);
+  // Compteur : 8 h réelles = 8 h prévues, aucune heure sup.
+  const r = computePlanDay({ planning: p, day: raw, declaration: { status: "taken" }, emp: {}, settings: S, date });
+  assert.deepEqual([r.actualWorkMinutes, r.overtimeMinutes, r.expectedBreakMinutes, r.declaredBreakMinutes], [480, 0, 24, 24]);
+
+  // Récap : ligne pauses prises / attendues
+  const day = { date, status: "present", spanMinutes: 480, workedMinutes: 480, breakMinutes: 0 };
+  const rec = buildMonthlyRecap({ contractType: "full", weeklyContractMinutes: 2205 }, S, [day], [],
+    2026, 10, [{ date, hasPlanning: true, expectedBreakMinutes: 24, declaredBreakMinutes: 20, counted: true, state: "counted" }]);
+  assert.deepEqual([rec.totals.workedMinutes, rec.totals.breakTaken, rec.totals.breakExpected, rec.totals.breakPending], [480, 20, 24, 0]);
+  const rec2 = buildMonthlyRecap({ contractType: "full", weeklyContractMinutes: 2205 }, S, [day], [],
+    2026, 10, [{ date, hasPlanning: true, expectedBreakMinutes: 24, declaredBreakMinutes: null, counted: false, state: "declaration-missing" }]);
+  assert.deepEqual([rec2.totals.breakTaken, rec2.totals.breakExpected, rec2.totals.breakPending], [0, 24, 1]);
+});

@@ -134,6 +134,18 @@ export function splitBlocks(planning, settings) {
   return second.start - first.end >= gapMin ? [first, second] : null;
 }
 
+/**
+ * Journée COUPÉE saisie avec les champs de pause (Départ pause / Retour pause) au lieu des deux blocs :
+ * l'intervalle entre les deux est la coupure du planning, ni présence ni travail. On la lit donc comme
+ * deux blocs (Arrivée → Départ pause, Retour pause → Départ). Sans planning coupé : heures inchangées.
+ */
+export function coupureAsBlocks(times, planning, settings) {
+  if (!times || times.arrival2 != null || times.breakOut == null || times.breakIn == null) return times;
+  if (!splitBlocks(planning, settings)) return times;
+  return { ...times, departure: times.breakOut, arrival2: times.breakIn, departure2: times.departure ?? null,
+    breakOut: null, breakIn: null, breakDecl1: null, breakDecl2: null };
+}
+
 /** Pause attendue de chaque bloc d'une journée coupée ([m, s]) ou null. Chaque bloc suit la règle habituelle (3 min/h, minimum légal, 30 min dès 8 h d'affilée). */
 export function expectedBreakBlocks(planning, settings) {
   const blocks = splitBlocks(planning, settings);
@@ -210,6 +222,8 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
     counted: false, state: "no-planning",
   };
 
+  // Journée coupée saisie avec Départ pause / Retour pause : lue comme deux blocs.
+  if (day) day = coupureAsBlocks(day, planning, s);
   // Journée coupée : le départ qui compte est celui du 2e bloc (null tant qu'il n'est pas badgé).
   const arrival = toMs(day?.arrival);
   const departure = day?.arrival2 != null ? toMs(day?.departure2) : toMs(day?.departure);

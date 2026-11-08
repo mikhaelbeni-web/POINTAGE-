@@ -1,7 +1,7 @@
 // ============================================================
 // recap.js — Agrégation hebdo & mensuelle à partir des jours.
 // ============================================================
-import { weekKey, classifyWeek, countedMinutes } from "./timeLogic";
+import { weekKey, classifyWeek, countedMinutes } from "./timeLogic.js";
 
 /** Toutes les dates "YYYY-MM-DD" d'un mois (year, month 1-12). */
 export function monthDates(year, month) {
@@ -29,10 +29,12 @@ export function monthBounds(year, month) {
  * @param leaves  congés chevauchant le mois
  * @returns { weeks:[...], totals:{...} }
  */
-export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
+export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger = []) {
   if (emp.category === "cadre") return buildCadreRecap(emp, days, leaves, year, month);
   const byDate = {};
   days.forEach((d) => (byDate[d.date] = d));
+  const ledgerByDate = {};
+  (ledger || []).forEach((l) => (ledgerByDate[l.date] = l));
 
   const leaveByDate = {};
   leaves.forEach((l) => {
@@ -48,7 +50,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
   const weeksMap = {};
   for (const date of monthDates(year, month)) {
     const wk = weekKey(date);
-    if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], workedMinutes: 0 };
+    if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], workedMinutes: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 };
     const d = byDate[date];
     const leave = leaveByDate[date];
 
@@ -62,13 +64,19 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
       restViolation = d.restViolation || false;
     } else status = "absent";
 
+    const pause = pauseOfDay(d, ledgerByDate[date]);
     weeksMap[wk].rows.push({
       date, status, worked, late, restViolation, leaveType: leave || null,
       arrival: d?.arrival || null, departure: d?.departure || null,
+      arrival2: d?.arrival2 || null, departure2: d?.departure2 || null,
       breakMinutes: d?.breakMinutes || 0,
+      ...pause,
       siteId: d?.siteId || null,
     });
     weeksMap[wk].workedMinutes += worked;
+    weeksMap[wk].breakTaken += pause.breakTaken || 0;
+    weeksMap[wk].breakExpected += pause.breakExpected || 0;
+    if (pause.breakPending) weeksMap[wk].breakPending++;
   }
 
   const weeks = Object.values(weeksMap)
@@ -88,12 +96,29 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month) {
       lateMinutes: t.lateMinutes + w.lateTotal,
       absences: t.absences + w.absences,
       restViolations: t.restViolations + w.restViolations,
+      breakTaken: t.breakTaken + w.breakTaken,
+      breakExpected: t.breakExpected + w.breakExpected,
+      breakPending: t.breakPending + w.breakPending,
     }),
-    { workedMinutes: 0, overtimeMinutes: 0, lateMinutes: 0, absences: 0, restViolations: 0 }
+    { workedMinutes: 0, overtimeMinutes: 0, lateMinutes: 0, absences: 0, restViolations: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 }
   );
   totals.overtimeType = emp.contractType === "part" ? "complementary" : "supplementary";
 
   return { weeks, totals };
+}
+
+/**
+ * Pause prise / attendue d'un jour. Attendue = règle du planning (3 min/h soit 5 % du temps prévu,
+ * 20 min dès 6 h, 30 min dès 8 h d'affilée), lue dans le compteur de pauses. Prise = pause déclarée
+ * au départ (ou régularisée) ; sans planning, la pause badgée. breakPending = déclaration à régulariser.
+ */
+export function pauseOfDay(d, l) {
+  const pending = !!(l && (l.state === "to-regularise" || l.state === "declaration-missing"));
+  const expected = l && l.hasPlanning && d ? l.expectedBreakMinutes || 0 : null;
+  let taken = null;
+  if (l && l.counted) taken = l.declaredBreakMinutes ?? 0;
+  else if (!pending && d && d.breakMinutes) taken = d.breakMinutes;
+  return { breakTaken: taken, breakExpected: expected, breakPending: pending };
 }
 
 // --- Récap mensuel CADRE : demi-journées, pas d'heures ---------

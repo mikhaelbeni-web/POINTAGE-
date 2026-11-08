@@ -24,7 +24,7 @@ import {
   serverTimestamp, runTransaction, writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { getSettings, saveSettings } from "./store";
+import { getSettings, saveSettings, recomputeDayDoc } from "./store";
 import { computePlanDay } from "./planLogic";
 
 export const dayKey = (empId, date) => `${empId}_${date}`;
@@ -106,6 +106,12 @@ export async function savePlannings(list, by, onProgress) {
     while (queue.length) {
       const c = queue.shift();
       try {
+        // Les heures du jour dépendent du planning quand la coupure est saisie en pause : on les recalcule aussi.
+        try {
+          const ds = (await getDocs(query(collection(db, "days"), where("employeeId", "==", c.employeeId), where("date", "==", c.date)))).docs.map((d) => d.data());
+          const emp = ds.some((d) => d.breakOut && d.breakIn && !d.arrival2) ? await getDoc(doc(db, "employees", c.employeeId)) : null;
+          for (const d of ds) if (emp?.exists() && d.breakOut && d.breakIn && !d.arrival2) await recomputeDayDoc(d.siteId, c.employeeId, c.date, { id: c.employeeId, ...emp.data() });
+        } catch (_) { /* repris à la lecture */ }
         const r = await recomputePlanDay(c.employeeId, c.date, { reason: "planning", by });
         await setDoc(doc(db, "planningHistory", c.histId), { impact: r.impact }, { merge: true });
       } catch (_) { /* la ligne sera reprise par recomputeStale à l'ouverture du tableau de bord */ }
