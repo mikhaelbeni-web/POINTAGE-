@@ -4,7 +4,7 @@
 // Sert à la page de démonstration (/demo) : aucune connexion à Firebase, aucune donnée
 // réelle touchée. Les calculs sont ceux de planLogic.js et timeLogic.js (les vrais).
 // ============================================================
-import { computePlanDay, hasPlanning, addDays, mondayOf, planSettings, DEFAULT_PLAN_SETTINGS } from "./planLogic";
+import { computePlanDay, coupureAsBlocks, hasPlanning, addDays, mondayOf, planSettings, DEFAULT_PLAN_SETTINGS } from "./planLogic";
 import { computeDay, DEFAULT_SETTINGS } from "./timeLogic";
 
 export const DEMO_SITES = [
@@ -34,7 +34,7 @@ export function createDemoApi(todayStr) {
     const raw = state.days[key(empId, date)];
     if (!raw) return null;
     const emp = empOf(empId);
-    const m = computeDay(raw, emp, state.settings, date);
+    const m = computeDay(coupureAsBlocks(raw, state.plans[key(empId, date)] || null, state.settings), emp, state.settings, date);
     return { id: key(empId, date), siteId: raw.siteId || emp.siteId, employeeId: empId, date, ...raw, ...m };
   }
   function recompute(empId, date, reason, by) {

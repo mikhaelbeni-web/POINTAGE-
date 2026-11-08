@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { classifyWeek, minutesToHHhMM, countedMinutes } from "../lib/timeLogic";
 import { computeBalance } from "../lib/planLogic";
 import { groupBySite } from "./PlanUi";
+import { pauseOfDay } from "../lib/recap";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const hhmm = (ts) => {
@@ -24,7 +25,8 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
     const out = {};
     for (let i = 0; i < staff.length; i += 8) {
       await Promise.all(staff.slice(i, i + 8).map(async (e) => {
-        const ds = await source.getDaysRange(e.id, from, to);
+        // Version « réparée » quand elle existe : les jours à recalculer le sont avant l'affichage.
+        const ds = source.getDaysRangeHealed ? (await source.getDaysRangeHealed(e, from, to)).days : await source.getDaysRange(e.id, from, to);
         out[e.id] = Object.fromEntries(ds.map((d) => [d.date, d]));
       }));
     }
@@ -45,21 +47,26 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
             <th style={th}>Présence semaine</th>
             <th style={th}>Contrat</th>
             <th style={th}>Écart</th>
+            <th style={th} title="Pause prise (déclarée) / pause attendue : 3 min par heure prévue (5 %), 20 min dès 6 h, 30 min dès 8 h d'affilée">Pauses prises / attendues</th>
             <th style={th}>Solde pauses</th>
           </tr>
         </thead>
         <tbody>
-          {!byEmp && <tr><td colSpan={12} style={{ padding: 16, color: "var(--text-dim)" }}>Chargement…</td></tr>}
-          {byEmp && staff.length === 0 && <tr><td colSpan={12} style={{ padding: 16, color: "var(--text-dim)" }}>Aucun salarié pour ces filtres.</td></tr>}
+          {!byEmp && <tr><td colSpan={13} style={{ padding: 16, color: "var(--text-dim)" }}>Chargement…</td></tr>}
+          {byEmp && staff.length === 0 && <tr><td colSpan={13} style={{ padding: 16, color: "var(--text-dim)" }}>Aucun salarié pour ces filtres.</td></tr>}
           {byEmp && groups.map((g) => [
             groups.length > 1 && (
-              <tr key={"h" + g.siteId}><td colSpan={12} style={{ padding: "10px 10px 4px", color: "var(--brass)", fontSize: 13, fontWeight: 600 }}>{g.name}</td></tr>
+              <tr key={"h" + g.siteId}><td colSpan={13} style={{ padding: "10px 10px 4px", color: "var(--brass)", fontSize: 13, fontWeight: 600 }}>{g.name}</td></tr>
             ),
             ...g.staff.map((e) => {
               const days = byEmp[e.id] || {};
               const total = dates.reduce((s, d) => s + countedMinutes(days[d], settings), 0);
               const cls = classifyWeek(total, e, settings);
               const bal = computeBalance(balances[e.id] || [], pset);
+              const led = Object.fromEntries((balances[e.id] || []).filter((r) => r.date >= from && r.date <= to).map((r) => [r.date, r]));
+              const pz = dates.map((d) => pauseOfDay(days[d], led[d]));
+              const pTaken = pz.reduce((s, p) => s + (p.breakTaken || 0), 0), pExp = pz.reduce((s, p) => s + (p.breakExpected || 0), 0);
+              const pPending = pz.filter((p) => p.breakPending).length;
               return (
                 <tr key={e.id} style={{ borderBottom: "1px solid var(--ink-3)" }}>
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}><strong>{e.displayName}</strong></td>
@@ -85,6 +92,10 @@ export default function WeekView({ staff, sites, dates, source, settings, pset, 
                   <td style={{ padding: "9px 10px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{minutesToHHhMM(cls.contractMinutes)}</td>
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap", color: cls.excessMinutes > 0 ? "var(--amber)" : cls.deficitMinutes > 0 ? "var(--text-dim)" : "var(--text)" }}>
                     {cls.excessMinutes > 0 ? `+${minutesToHHhMM(cls.excessMinutes)}` : cls.deficitMinutes > 0 ? `−${minutesToHHhMM(cls.deficitMinutes)}` : "0"}
+                  </td>
+                  <td style={{ padding: "9px 10px", whiteSpace: "nowrap", color: pTaken < pExp ? "var(--amber)" : "var(--text)" }}>
+                    {pTaken || pExp ? `${minutesToHHhMM(pTaken)} / ${minutesToHHhMM(pExp)}` : "—"}
+                    {pPending > 0 && <div style={{ fontSize: 11, color: "var(--amber)" }}>{pPending} j à régulariser</div>}
                   </td>
                   <td style={{ padding: "9px 10px" }}>
                     <button onClick={() => onOpenBalance(e)} aria-label={`Compteur de pauses de ${e.displayName}`} style={{

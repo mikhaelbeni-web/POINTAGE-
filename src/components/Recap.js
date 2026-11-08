@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getDaysRangeHealed, getLeaves, getSettings } from "../lib/store";
 import { buildMonthlyRecap, monthBounds } from "../lib/recap";
 import { minutesToHHhMM } from "../lib/timeLogic";
+import { getLedgerRows } from "../lib/planStore";
 import { inp, btnPrimary, btnGhost } from "./Employees";
 import { leaveLabel } from "./ui";
 
@@ -59,7 +60,9 @@ export default function Recap({ employees, sites = [], allowedSiteIds = null }) 
         const { days, stale: n } = await getDaysRangeHealed(emp, start, end);
         if (n > 0) stale.push(`${emp.displayName} (${n} j)`);
         const leaves = await getLeaves(emp.id, start, end);
-        out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month) });
+        let ledger = [];
+        try { ledger = (await getLedgerRows(emp.id)).filter((l) => l.date >= start && l.date <= end); } catch (_) { /* pauses indisponibles : heures quand même */ }
+        out.push({ emp, ...buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger) });
       }
       setStaleNames(stale);
       setRecaps(out);
@@ -178,7 +181,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
-                {["Date", "Magasin", "Arrivée", "Départ", "Pause", "Présence", "Statut"].map((h) => (
+                {["Date", "Magasin", "Arrivée", "Départ", "Pause prise / attendue", "Présence", "Statut"].map((h) => (
                   <th key={h} style={cellH}>{h}</th>
                 ))}
               </tr>
@@ -192,15 +195,16 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
                   <td style={{ ...cell, color: elsewhere ? "var(--brass)" : "inherit", fontWeight: elsewhere ? 700 : 400 }}>
                     {r.siteId ? siteName(r.siteId) + (elsewhere ? " ⚑" : "") : "—"}
                   </td>
-                  <td style={cell}>{fmt(r.arrival)}</td>
-                  <td style={cell}>{fmt(r.departure)}</td>
-                  <td style={cell}>{r.breakMinutes ? minutesToHHhMM(r.breakMinutes) : "—"}</td>
+                  <td style={cell}>{fmt(r.arrival)}{r.arrival2 && <> · {fmt(r.arrival2)}</>}</td>
+                  <td style={cell}>{fmt(r.departure)}{r.arrival2 && <> · {fmt(r.departure2)}</>}</td>
+                  <td style={cell}>{pauseText(r)}</td>
                   <td style={cell}>{r.worked ? minutesToHHhMM(r.worked) : "—"}</td>
                   <td style={cell}>{statusText(r)}</td>
                 </tr>
               );})}
               <tr style={{ fontWeight: 600 }}>
-                <td style={cell} colSpan={5}>Total semaine</td>
+                <td style={cell} colSpan={4}>Total semaine</td>
+                <td style={cell}>{w.breakExpected || w.breakTaken ? `${minutesToHHhMM(w.breakTaken)} / ${minutesToHHhMM(w.breakExpected)}` : "—"}</td>
                 <td style={cell}>{minutesToHHhMM(w.workedMinutes)}</td>
                 <td style={cell}>
                   {w.overtimeMinutes > 0
@@ -218,6 +222,7 @@ function RecapSheet({ emp, weeks, totals, year, month, sites = [] }) {
         <Total label="Total heures de présence" value={minutesToHHhMM(totals.workedMinutes)} />
         <Total label={totals.overtimeType === "complementary" ? "H. complémentaires" : "H. supplémentaires"} value={minutesToHHhMM(totals.overtimeMinutes)} />
         <Total label="Absences" value={String(totals.absences)} />
+        <Total label="Pauses prises / attendues (3 min/h = 5 %)" value={`${minutesToHHhMM(totals.breakTaken)} / ${minutesToHHhMM(totals.breakExpected)}${totals.breakPending ? ` · ${totals.breakPending} j à régulariser` : ""}`} />
       </div>
 
       <div style={{ marginTop: 30, display: "flex", justifyContent: "space-between", gap: 40 }}>
@@ -238,6 +243,12 @@ function Sign({ label }) {
       <div style={{ borderTop: "1px solid var(--text-faint)" }} />
     </div>
   );
+}
+function pauseText(r) {
+  const exp = r.breakExpected != null ? `${r.breakExpected} min` : "—";
+  if (r.breakPending) return `à régulariser / ${exp}`;
+  if (r.breakTaken == null && r.breakExpected == null) return "—";
+  return `${r.breakTaken != null ? `${r.breakTaken} min` : "—"} / ${exp}`;
 }
 function statusText(r) {
   if (r.leaveType) return leaveLabel(r.leaveType);

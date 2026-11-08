@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Modal, Field, inp, btnPrimary, btnGhost } from "./Employees";
-import { setDayTimes, addLeave, getLeaves, deleteLeave, getDaysRange, setCadreHalfDay } from "../lib/store";
+import { setDayTimes, addLeave, getLeaves, deleteLeave, getDaysRange, setCadreHalfDay, getSettings } from "../lib/store";
 import { leaveLabel, LEAVE_TYPES } from "./ui";
 import { minutesToHHhMM } from "../lib/timeLogic";
+import { realApi } from "../lib/planStore";
+import { splitBlocks } from "../lib/planLogic";
 
 function toMin(hhmm) {
   if (!hhmm) return null;
@@ -12,9 +14,13 @@ function toMin(hhmm) {
 }
 
 // Aperçu en direct : amplitude, pause déduite, temps de travail.
-function LivePreview({ times }) {
-  const a = toMin(times.arrival), d = toMin(times.departure);
-  const bo = toMin(times.breakOut), bi = toMin(times.breakIn);
+function LivePreview({ times, split = false }) {
+  const a = toMin(times.arrival);
+  let d = toMin(times.departure);
+  let bo = toMin(times.breakOut), bi = toMin(times.breakIn);
+  // Planning en journée coupée + pause saisie : c'est la coupure (ni présence ni travail), comme deux blocs.
+  const coupure = split && !times.arrival2 && bo != null && bi != null;
+  if (coupure) { times = { ...times, arrival2: times.breakIn, departure2: times.departure }; d = bo; bo = null; bi = null; }
   let span = null, brk = 0, worked = null;
   if (a != null && d != null) {
     span = d < a ? d + 1440 - a : d - a;
@@ -32,6 +38,7 @@ function LivePreview({ times }) {
       <span style={{ color: "var(--text-dim)" }}>Présence (pause comprise) : <strong style={{ color: "var(--text)" }}>{span != null ? minutesToHHhMM(span) : "—"}</strong></span>
       <span style={{ color: "var(--text-dim)" }}>Pause : <strong style={{ color: "var(--amber)" }}>{brk ? minutesToHHhMM(brk) : "0h00"}</strong></span>
       <span style={{ color: "var(--text-dim)" }}>Heures travaillées : <strong style={{ color: "var(--green)" }}>{worked != null ? minutesToHHhMM(worked) : "—"}</strong></span>
+      {coupure && <span style={{ color: "var(--text-faint)", fontSize: 12 }}>Journée coupée au planning : {times.breakOut}–{times.breakIn} = coupure, non comptée</span>}
     </div>
   );
 }
@@ -47,6 +54,7 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
   const [leaves, setLeaves] = useState([]);
   const [leaveForm, setLeaveForm] = useState({ type: "cp", startDate: date, endDate: date, note: "" });
   const [saving, setSaving] = useState(false);
+  const [split, setSplit] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -60,6 +68,9 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
       }
       setLeaves(await getLeaves(emp.id, date, date));
     })();
+    Promise.all([realApi.getPlannings(date, date), getSettings()])
+      .then(([ps, st]) => setSplit(!!splitBlocks(ps.find((p) => p.employeeId === emp.id) || null, st || {})))
+      .catch(() => setSplit(false));
   }, [emp.id, date]);
 
   async function save() {
@@ -96,7 +107,7 @@ export default function DayEditor({ emp, date, managerId, onClose }) {
               <Field label="2e arrivée (journée coupée)"><input type="time" style={inp} value={times.arrival2} onChange={(e) => setTimes({ ...times, arrival2: e.target.value })} /></Field>
               <Field label="2e départ (journée coupée)"><input type="time" style={inp} value={times.departure2} onChange={(e) => setTimes({ ...times, departure2: e.target.value })} /></Field>
             </div>
-            <LivePreview times={times} />
+            <LivePreview times={times} split={split} />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "…" : "Enregistrer les horaires"}</button>
             </div>

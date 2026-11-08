@@ -10,6 +10,17 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
+import { coupureAsBlocks } from "./planLogic";
+
+// Version du calcul des jours. 2 : journée coupée saisie en Départ pause / Retour pause
+// = deux blocs (la coupure n'est plus comptée en présence). Les jours calculés avant sont
+// recalculés automatiquement à la lecture (tableau de bord, semaine, récap).
+const CALC_VERSION = 2;
+function needsHeal(d) {
+  if (!d || d.category === "cadre") return false;
+  if (d.needsRecompute === true) return true;
+  return !!(d.breakOut && d.breakIn && !d.arrival2 && (d.calcVersion || 0) < CALC_VERSION);
+}
 
 const SETTINGS_ID = "global";
 const dayId = (siteId, empId, date) => `${siteId}_${empId}_${date}`;
@@ -368,6 +379,8 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
+    const planSnap = await tx.get(doc(db, "plannings", `${empId}_${date}`));
+    const planning = planSnap.exists() ? planSnap.data() : null;
     const cur = snap.data();
     if (cur.category === "cadre") return; // les cadres ont leur propre calcul
     const times = {
@@ -376,7 +389,7 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
       arrival2: cur.arrival2 || null, departure2: cur.departure2 || null,
       breakDecl1: cur.breakDecl1 ?? null, breakDecl2: cur.breakDecl2 ?? null,
     };
-    const m = computeDay(times, emp, settings, date);
+    const m = computeDay(coupureAsBlocks(times, planning, settings), emp, settings, date);
     let restViolation = false, restMinutes = null;
     if (prevDeparture && times.arrival) {
       const r = checkRest(prevDeparture, times.arrival, settings);
@@ -387,7 +400,7 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
       spanMinutes: m.spanMinutes, spanViolation: m.spanViolation,
       lateMinutes: m.lateMinutes, status: m.status,
       restViolation, restMinutes,
-      needsRecompute: false,
+      needsRecompute: false, calcVersion: CALC_VERSION,
       updatedAt: serverTimestamp(),
     });
   });
@@ -415,7 +428,7 @@ function _armHeal(id, delay) {
   _healTimers.set(id, setTimeout(async () => {
     _healTimers.delete(id);
     const d = _healLatest.get(id);
-    if (!d || d.needsRecompute !== true || d.category === "cadre") return;
+    if (!needsHeal(d)) return;
     _healAttempts.set(id, (_healAttempts.get(id) || 0) + 1);
     try {
       const c = _empCache.get(d.employeeId);
@@ -436,7 +449,7 @@ if (typeof window !== "undefined") {
     try {
       _healAttempts.clear();
       for (const [id, d] of _healLatest) {
-        if (d.needsRecompute === true && !d._pending && d.category !== "cadre") _armHeal(id, 3000);
+        if (needsHeal(d) && !d._pending) _armHeal(id, 3000);
       }
     } catch (_) { /* jamais bloquant */ }
   });
@@ -447,8 +460,8 @@ export function healDirtyDays(list) {
     for (const d of list || []) {
       if (!d || !d.id) continue;
       _healLatest.set(d.id, d);
-      if (d.needsRecompute === true && !d._pending && d.category !== "cadre") {
-        _armHeal(d.id, HEAL_DELAY_MS);
+      if (needsHeal(d) && !d._pending) {
+        _armHeal(d.id, d.needsRecompute === true ? HEAL_DELAY_MS : 0);
       } else {
         const t = _healTimers.get(d.id);
         if (t) { clearTimeout(t); _healTimers.delete(d.id); }
@@ -572,13 +585,13 @@ export function watchDaySite(date, siteId, cb) {
 // qu'il a été impossible de recalculer (à signaler à l'écran).
 export async function getDaysRangeHealed(emp, startDate, endDate) {
   let days = await getDaysRange(emp.id, startDate, endDate);
-  const dirty = days.filter((d) => d.needsRecompute === true && d.category !== "cadre");
+  const dirty = days.filter(needsHeal);
   if (dirty.length === 0) return { days, stale: 0 };
   for (const d of dirty) {
     try { await recomputeDayDoc(d.siteId, emp.id, d.date, emp); } catch (_) { /* compté plus bas */ }
   }
   days = await getDaysRange(emp.id, startDate, endDate);
-  const stale = days.filter((d) => d.needsRecompute === true && d.category !== "cadre").length;
+  const stale = days.filter(needsHeal).length;
   return { days, stale };
 }
 
