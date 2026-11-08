@@ -6,7 +6,7 @@ import { StatusPill } from "./ui";
 import { useScope, ScopeFilters } from "./PlanUi";
 import WeekView from "./WeekView";
 import PauseDetail, { Pill, signed } from "./PauseDetail";
-import { computeBalance, fmtMin, periodState, hasPlanning, planSettings } from "../lib/planLogic";
+import { computeBalance, fmtMin, periodState, hasPlanning, planSettings, ledgerState, isPendingRow } from "../lib/planLogic";
 import { minutesToHHhMM, isoWeekday, weekKey, classifyWeek, countedMinutes } from "../lib/timeLogic";
 
 // Toujours raisonner en date LOCALE (jamais toISOString, qui bascule en UTC
@@ -114,7 +114,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
   const late = active.filter((e) => (days[e.id]?.lateMinutes || 0) > 0);
   const restViol = active.filter((e) => days[e.id]?.restViolation);
   const spanViol = active.filter((e) => days[e.id]?.spanViolation);
-  const toFix = active.filter((e) => ["to-regularise", "declaration-missing"].includes(L[e.id]?.state));
+  const toFix = active.filter((e) => isPendingRow(L[e.id]));
   const gaps = active.filter((e) => L[e.id] && (L[e.id].arrivalFlag === "late" || L[e.id].departureFlag === "over" || L[e.id].departureFlag === "early"));
   const unplanned = active.filter((e) => !(P[e.id] && hasPlanning(P[e.id])) && days[e.id]);
 
@@ -219,7 +219,7 @@ export default function Dashboard({ employees, sites = [], allowedSiteIds = null
                   <td style={{ ...td, color: "var(--amber)" }}>{d?.breakMinutes ? minutesToHHhMM(d.breakMinutes) : "—"}</td>
                   <td style={td}>{l && planText(plan) ? fmtMin(l.expectedBreakMinutes) : "—"}</td>
                   <td style={td}>
-                    {c ? (l?.state === "to-regularise" || l?.state === "declaration-missing" ? <Pill s={l.state} /> : <>{l?.declaredBreakMinutes != null ? fmtMin(l.declaredBreakMinutes) : "—"}{l?.counted && l.deltaBreakMinutes !== 0 && <span style={{ marginLeft: 6, color: l.deltaBreakMinutes < 0 ? "var(--red)" : l.deltaBreakMinutes > 0 ? "var(--green)" : "var(--text-faint)", fontSize: 12 }}>{signed(l.deltaBreakMinutes)}</span>}</>) : l && ["to-regularise", "declaration-missing"].includes(l.state) ? <Pill s={l.state} /> : "—"}
+                    {ledgerState(l) === "off-plan" ? <Pill s="off-plan" /> : c ? (isPendingRow(l) ? <Pill s={l.state} /> : <>{l?.declaredBreakMinutes != null ? fmtMin(l.declaredBreakMinutes) : "—"}{l?.counted && l.deltaBreakMinutes !== 0 && <span style={{ marginLeft: 6, color: l.deltaBreakMinutes < 0 ? "var(--red)" : l.deltaBreakMinutes > 0 ? "var(--green)" : "var(--text-faint)", fontSize: 12 }}>{signed(l.deltaBreakMinutes)}</span>}</>) : isPendingRow(l) ? <Pill s={l.state} /> : "—"}
                   </td>
                   <td style={td}>{countedMinutes(d, settings) ? minutesToHHhMM(countedMinutes(d, settings)) : "—"}</td>
                   <td style={td}>

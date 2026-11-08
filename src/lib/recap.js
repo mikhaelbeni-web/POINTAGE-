@@ -2,6 +2,7 @@
 // recap.js — Agrégation hebdo & mensuelle à partir des jours.
 // ============================================================
 import { weekKey, classifyWeek, countedMinutes } from "./timeLogic.js";
+import { ledgerState } from "./planLogic.js";
 
 /** Toutes les dates "YYYY-MM-DD" d'un mois (year, month 1-12). */
 export function monthDates(year, month) {
@@ -113,12 +114,14 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledg
  * au départ (ou régularisée) ; sans planning, la pause badgée. breakPending = déclaration à régulariser.
  */
 export function pauseOfDay(d, l) {
-  const pending = !!(l && (l.state === "to-regularise" || l.state === "declaration-missing"));
+  const st = ledgerState(l);
+  const pending = st === "to-regularise" || st === "declaration-missing";
+  const offPlan = !!(d && st === "off-plan");
   const expected = l && l.hasPlanning && d ? l.expectedBreakMinutes || 0 : null;
   let taken = null;
   if (l && l.counted) taken = l.declaredBreakMinutes ?? 0;
   else if (!pending && d && d.breakMinutes) taken = d.breakMinutes;
-  return { breakTaken: taken, breakExpected: expected, breakPending: pending };
+  return { breakTaken: taken, breakExpected: offPlan ? null : expected, breakPending: pending, offPlan };
 }
 
 // --- Récap mensuel CADRE : demi-journées, pas d'heures ---------

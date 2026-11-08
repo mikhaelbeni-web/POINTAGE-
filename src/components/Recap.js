@@ -245,6 +245,7 @@ function Sign({ label }) {
   );
 }
 function pauseText(r) {
+  if (r.offPlan) return r.breakTaken != null ? `${r.breakTaken} min · hors planning` : "hors planning";
   const exp = r.breakExpected != null ? `${r.breakExpected} min` : "—";
   if (r.breakPending) return `à régulariser / ${exp}`;
   if (r.breakTaken == null && r.breakExpected == null) return "—";
@@ -252,7 +253,8 @@ function pauseText(r) {
 }
 function statusText(r) {
   if (r.leaveType) return leaveLabel(r.leaveType);
-  return { present: "Présent", incomplete: "Incomplet", absent: "Absent", off: "Repos" }[r.status] || "";
+  const st = { present: "Présent", incomplete: "Incomplet", absent: "Absent", off: "Repos" }[r.status] || "";
+  return r.offPlan ? `${st} (hors planning)` : st;
 }
 function fmt(ts) {
   if (!ts) return "—";

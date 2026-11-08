@@ -259,6 +259,8 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
 
   // Pause : comptée seulement si le départ est enregistré ET la déclaration est définitive.
   if (departure == null) { out.state = arrival != null ? "in-progress" : "no-punch"; return out; }
+  // Pointé un jour prévu en repos (aucune heure au planning) : pas de pause attendue, rien à régulariser.
+  if (!plannedWork) { out.state = "off-plan"; return out; }
   const blockTwoMissing = !!(declaration && splitBlocks(planning, s) && day?.arrival2 != null && !declaration.block2);
   declaration = mergeBlockDeclarations(declaration);
   const declared = declaredBreakMinutes(declaration, expectedBreak);
@@ -272,6 +274,17 @@ export function computePlanDay({ planning, day, declaration, emp, settings, date
   out.state = "counted";
   return out;
 }
+
+/**
+ * État affiché d'une ligne du compteur. Les lignes calculées avant l'état « off-plan » (jour pointé
+ * alors que le planning ne prévoit aucune heure) sont lues comme telles, sans attendre un recalcul.
+ */
+export function ledgerState(r) {
+  if (!r) return null;
+  if (r.hasPlanning && r.plannedWorkMinutes === 0 && (r.state === "declaration-missing" || r.state === "to-regularise")) return "off-plan";
+  return r.state;
+}
+export const isPendingRow = (r) => ["to-regularise", "declaration-missing"].includes(ledgerState(r));
 
 // ---------- Compteur cumulatif ----------
 /**
@@ -293,7 +306,7 @@ export function computeBalance(rows, settings) {
     // solde principal affiché : en mode "none", les minutes manquantes (dette) ; en "net", le solde net.
     headline: s.breakCompensation === "net" ? net : -missing,
     daysCounted: sorted.length,
-    pendingDays: rows.filter((r) => r.state === "to-regularise" || r.state === "declaration-missing").length,
+    pendingDays: rows.filter(isPendingRow).length,
     evolution,
   };
 }
