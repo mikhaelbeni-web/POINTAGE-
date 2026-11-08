@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { classifyWeek, minutesToHHhMM, countedMinutes } from "../lib/timeLogic";
-import { computeBalance, plannedWorkMinutes, hasPlanning, periodState } from "../lib/planLogic";
+import { computeBalance } from "../lib/planLogic";
 import { groupBySite } from "./PlanUi";
 import { pauseOfDay } from "../lib/recap";
 
@@ -17,18 +17,9 @@ const hhmm = (ts) => {
  * et le solde de pauses. Un clic sur un jour ouvre la fenêtre « Corriger » existante (onEditDay) : mêmes
  * écritures, mêmes recalculs ; la ligne se met à jour dès que la correction est enregistrée (refreshKey).
  */
-export default function WeekView({ staff, sites, dates, source, planApi = null, settings, pset, balances, canEdit, onEditDay, onOpenBalance, refreshKey }) {
+export default function WeekView({ staff, sites, dates, source, settings, pset, balances, canEdit, onEditDay, onOpenBalance, refreshKey }) {
   const [byEmp, setByEmp] = useState(null);
-  const [plans, setPlans] = useState({}); // "empId_date" -> planning (prévu)
   const from = dates[0], to = dates[6];
-  useEffect(() => {
-    if (!planApi?.getPlannings) return;
-    let off = false;
-    planApi.getPlannings(from, to)
-      .then((list) => { if (!off) setPlans(Object.fromEntries(list.map((p) => [`${p.employeeId}_${p.date}`, p]))); })
-      .catch(() => { if (!off) setPlans({}); });
-    return () => { off = true; };
-  }, [planApi, from, to, refreshKey]);
 
   const load = useCallback(async () => {
     const out = {};
@@ -54,27 +45,23 @@ export default function WeekView({ staff, sites, dates, source, planApi = null, 
             <th style={th}>Salarié</th>
             {dates.map((d, i) => <th key={d} style={{ ...th, textAlign: "center" }}>{JOURS[i]} {d.slice(8)}/{d.slice(5, 7)}</th>)}
             <th style={th}>Présence semaine</th>
-            <th style={th} title="Heures prévues au planning (pause comprise)">Prévu</th>
-            <th style={th} title="Présence réelle − prévu">Écart / prévu</th>
             <th style={th}>Contrat</th>
-            <th style={th}>Écart / contrat</th>
+            <th style={th}>Écart</th>
             <th style={th} title="Pause prise (déclarée) / pause attendue : 3 min par heure prévue (5 %), 20 min dès 6 h, 30 min dès 8 h d'affilée">Pauses prises / attendues</th>
             <th style={th}>Solde pauses</th>
           </tr>
         </thead>
         <tbody>
-          {!byEmp && <tr><td colSpan={15} style={{ padding: 16, color: "var(--text-dim)" }}>Chargement…</td></tr>}
-          {byEmp && staff.length === 0 && <tr><td colSpan={15} style={{ padding: 16, color: "var(--text-dim)" }}>Aucun salarié pour ces filtres.</td></tr>}
+          {!byEmp && <tr><td colSpan={13} style={{ padding: 16, color: "var(--text-dim)" }}>Chargement…</td></tr>}
+          {byEmp && staff.length === 0 && <tr><td colSpan={13} style={{ padding: 16, color: "var(--text-dim)" }}>Aucun salarié pour ces filtres.</td></tr>}
           {byEmp && groups.map((g) => [
             groups.length > 1 && (
-              <tr key={"h" + g.siteId}><td colSpan={15} style={{ padding: "10px 10px 4px", color: "var(--brass)", fontSize: 13, fontWeight: 600 }}>{g.name}</td></tr>
+              <tr key={"h" + g.siteId}><td colSpan={13} style={{ padding: "10px 10px 4px", color: "var(--brass)", fontSize: 13, fontWeight: 600 }}>{g.name}</td></tr>
             ),
             ...g.staff.map((e) => {
               const days = byEmp[e.id] || {};
               const total = dates.reduce((s, d) => s + countedMinutes(days[d], settings), 0);
               const cls = classifyWeek(total, e, settings);
-              const planned = dates.reduce((s, d) => s + plannedWorkMinutes(plans[`${e.id}_${d}`]), 0);
-              const vsPlan = total - planned;
               const bal = computeBalance(balances[e.id] || [], pset);
               const led = Object.fromEntries((balances[e.id] || []).filter((r) => r.date >= from && r.date <= to).map((r) => [r.date, r]));
               const pz = dates.map((d) => pauseOfDay(days[d], led[d]));
@@ -87,8 +74,6 @@ export default function WeekView({ staff, sites, dates, source, planApi = null, 
                     const x = days[d];
                     const a = hhmm(x?.arrival), b = hhmm(x?.arrival2 ? x?.departure2 : x?.departure);
                     const label = countedMinutes(x, settings) ? minutesToHHhMM(countedMinutes(x, settings)) : a && !b ? "en cours" : "—";
-                    const pl = plans[`${e.id}_${d}`];
-                    const plText = hasPlanning(pl) ? (plannedWorkMinutes(pl) ? `prévu ${minutesToHHhMM(plannedWorkMinutes(pl))}` : periodState(pl.morning) === "off" && periodState(pl.evening) === "off" ? "prévu repos" : null) : null;
                     return (
                       <td key={d} style={{ padding: "4px 4px", textAlign: "center" }}>
                         <button disabled={!canEdit} onClick={() => onEditDay && onEditDay(e, d)}
@@ -98,17 +83,12 @@ export default function WeekView({ staff, sites, dates, source, planApi = null, 
                             color: x ? "var(--text)" : "var(--text-faint)", fontSize: 13, fontWeight: 600, cursor: canEdit ? "pointer" : "default",
                           }}>
                           {label}
-                          {(a || b) && <div style={{ fontSize: 11, fontWeight: 400, color: "var(--text-dim)" }} title="Heures pointées">{a || "?"}–{b || "?"}</div>}
-                          {plText && <div style={{ fontSize: 11, fontWeight: 400, color: "var(--brass)" }} title="Planning">{plText}</div>}
+                          {(a || b) && <div style={{ fontSize: 11, fontWeight: 400, color: "var(--text-dim)" }}>{a || "?"}–{b || "?"}</div>}
                         </button>
                       </td>
                     );
                   })}
                   <td style={{ padding: "9px 10px", fontWeight: 700, whiteSpace: "nowrap" }}>{minutesToHHhMM(total)}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--brass)", whiteSpace: "nowrap" }}>{planned ? minutesToHHhMM(planned) : "—"}</td>
-                  <td style={{ padding: "9px 10px", whiteSpace: "nowrap", color: !planned ? "var(--text-faint)" : vsPlan > 0 ? "var(--amber)" : vsPlan < 0 ? "var(--text-dim)" : "var(--text)" }}>
-                    {!planned ? "—" : vsPlan > 0 ? `+${minutesToHHhMM(vsPlan)}` : vsPlan < 0 ? `−${minutesToHHhMM(-vsPlan)}` : "0"}
-                  </td>
                   <td style={{ padding: "9px 10px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{minutesToHHhMM(cls.contractMinutes)}</td>
                   <td style={{ padding: "9px 10px", whiteSpace: "nowrap", color: cls.excessMinutes > 0 ? "var(--amber)" : cls.deficitMinutes > 0 ? "var(--text-dim)" : "var(--text)" }}>
                     {cls.excessMinutes > 0 ? `+${minutesToHHhMM(cls.excessMinutes)}` : cls.deficitMinutes > 0 ? `−${minutesToHHhMM(cls.deficitMinutes)}` : "0"}
@@ -132,7 +112,7 @@ export default function WeekView({ staff, sites, dates, source, planApi = null, 
         </tbody>
       </table>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 10 }}>
-        Cliquez sur un jour pour corriger ses heures (arrivée, pauses, départ). Le total de la semaine se met à jour à l'enregistrement. Les jours sans pointage affichent « — ». Dans chaque case : heures réelles (pointées) en blanc, planning en doré.
+        Cliquez sur un jour pour corriger ses heures (arrivée, pauses, départ). Le total de la semaine se met à jour à l'enregistrement. Les jours sans pointage affichent « — ».
       </p>
     </div>
   );

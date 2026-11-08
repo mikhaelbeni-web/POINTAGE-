@@ -270,16 +270,3 @@ test("journée coupée saisie en Départ pause / Retour pause : la coupure n'est
     2026, 10, [{ date, hasPlanning: true, expectedBreakMinutes: 24, declaredBreakMinutes: null, counted: false, state: "declaration-missing" }]);
   assert.deepEqual([rec2.totals.breakTaken, rec2.totals.breakExpected, rec2.totals.breakPending], [0, 24, 1]);
 });
-
-test("récap : prévu au planning à côté du réel", async () => {
-  const { buildMonthlyRecap } = await import("../src/lib/recap.js");
-  const days = [{ date: "2026-11-02", status: "present", spanMinutes: 364, workedMinutes: 364, breakMinutes: 0 }];
-  const plans = [
-    { date: "2026-11-02", morning: { state: "off" }, evening: { state: "off" } },
-    { date: "2026-11-03", morning: worked("09:15", "14:00"), evening: worked("15:00", "17:45") },
-  ];
-  const rec = buildMonthlyRecap({ contractType: "full", weeklyContractMinutes: 2205 }, S, days, [], 2026, 11, [], plans);
-  assert.deepEqual([rec.totals.workedMinutes, rec.totals.plannedMinutes], [364, 450]);
-  const w = rec.weeks.find((x) => x.rows.some((r) => r.date === "2026-11-03"));
-  assert.equal(w.rows.find((r) => r.date === "2026-11-03").planned, 450);
-});

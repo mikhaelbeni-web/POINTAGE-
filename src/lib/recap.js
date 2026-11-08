@@ -2,7 +2,6 @@
 // recap.js — Agrégation hebdo & mensuelle à partir des jours.
 // ============================================================
 import { weekKey, classifyWeek, countedMinutes } from "./timeLogic.js";
-import { plannedWorkMinutes } from "./planLogic.js";
 
 /** Toutes les dates "YYYY-MM-DD" d'un mois (year, month 1-12). */
 export function monthDates(year, month) {
@@ -30,14 +29,12 @@ export function monthBounds(year, month) {
  * @param leaves  congés chevauchant le mois
  * @returns { weeks:[...], totals:{...} }
  */
-export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger = [], plans = []) {
+export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledger = []) {
   if (emp.category === "cadre") return buildCadreRecap(emp, days, leaves, year, month);
   const byDate = {};
   days.forEach((d) => (byDate[d.date] = d));
   const ledgerByDate = {};
   (ledger || []).forEach((l) => (ledgerByDate[l.date] = l));
-  const planByDate = {};
-  (plans || []).forEach((p) => (planByDate[p.date] = p));
 
   const leaveByDate = {};
   leaves.forEach((l) => {
@@ -53,7 +50,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledg
   const weeksMap = {};
   for (const date of monthDates(year, month)) {
     const wk = weekKey(date);
-    if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], workedMinutes: 0, plannedMinutes: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 };
+    if (!weeksMap[wk]) weeksMap[wk] = { weekKey: wk, rows: [], workedMinutes: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 };
     const d = byDate[date];
     const leave = leaveByDate[date];
 
@@ -68,18 +65,15 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledg
     } else status = "absent";
 
     const pause = pauseOfDay(d, ledgerByDate[date]);
-    const planned = plannedWorkMinutes(planByDate[date]);
     weeksMap[wk].rows.push({
       date, status, worked, late, restViolation, leaveType: leave || null,
       arrival: d?.arrival || null, departure: d?.departure || null,
       arrival2: d?.arrival2 || null, departure2: d?.departure2 || null,
       breakMinutes: d?.breakMinutes || 0,
-      planned,
       ...pause,
       siteId: d?.siteId || null,
     });
     weeksMap[wk].workedMinutes += worked;
-    weeksMap[wk].plannedMinutes += planned;
     weeksMap[wk].breakTaken += pause.breakTaken || 0;
     weeksMap[wk].breakExpected += pause.breakExpected || 0;
     if (pause.breakPending) weeksMap[wk].breakPending++;
@@ -98,7 +92,6 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledg
   const totals = weeks.reduce(
     (t, w) => ({
       workedMinutes: t.workedMinutes + w.workedMinutes,
-      plannedMinutes: t.plannedMinutes + w.plannedMinutes,
       overtimeMinutes: t.overtimeMinutes + w.overtimeMinutes,
       lateMinutes: t.lateMinutes + w.lateTotal,
       absences: t.absences + w.absences,
@@ -107,7 +100,7 @@ export function buildMonthlyRecap(emp, settings, days, leaves, year, month, ledg
       breakExpected: t.breakExpected + w.breakExpected,
       breakPending: t.breakPending + w.breakPending,
     }),
-    { workedMinutes: 0, plannedMinutes: 0, overtimeMinutes: 0, lateMinutes: 0, absences: 0, restViolations: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 }
+    { workedMinutes: 0, overtimeMinutes: 0, lateMinutes: 0, absences: 0, restViolations: 0, breakTaken: 0, breakExpected: 0, breakPending: 0 }
   );
   totals.overtimeType = emp.contractType === "part" ? "complementary" : "supplementary";
 
