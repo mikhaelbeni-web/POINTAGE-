@@ -21,6 +21,7 @@ import { getDeviceInfo } from "../lib/deviceInfo";
 
 const TABLET_SITE_KEY = "pointage_tablet_site";
 const TABLET_ID_KEY = "pointage_tablet_id";
+const HEARTBEAT_MS = 3 * 60 * 1000;
 function getTabletId() {
   if (typeof window === "undefined") return null;
   let id = localStorage.getItem(TABLET_ID_KEY);
@@ -57,7 +58,7 @@ export default function Page() {
   // quel que soit l'écran. Déclencheurs multiples pour ne pas dépendre
   // uniquement du minuteur (que le navigateur suspend en arrière-plan) :
   //  - immédiat au montage
-  //  - toutes les minutes
+  //  - toutes les 3 minutes (page visible)
   //  - au réveil de la page (visibilitychange) -> clé si l'écran s'est mis en veille
   //  - au retour du réseau (online)
   //  - à chaque clic/touche sur la page
@@ -75,7 +76,8 @@ export default function Page() {
     });
 
     beat(); // immédiat
-    const iv = setInterval(beat, 60 * 1000);
+    // Toutes les 3 min (au lieu de 1 min) : divise par 3 les écritures Firestore (quota gratuit).
+    const iv = setInterval(() => { if (document.visibilityState !== "hidden") beat(); }, HEARTBEAT_MS);
 
     const onVisible = () => { if (document.visibilityState === "visible") beat(); };
     const onOnline = () => beat();
@@ -83,7 +85,7 @@ export default function Page() {
     let lastTouch = 0;
     const onTouch = () => {
       const now = Date.now();
-      if (now - lastTouch > 20000) { lastTouch = now; beat(); }
+      if (now - lastTouch > HEARTBEAT_MS) { lastTouch = now; beat(); }
     };
 
     document.addEventListener("visibilitychange", onVisible);
