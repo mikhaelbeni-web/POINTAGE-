@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { watchTablets, deleteTablet } from "../lib/store";
 
 // Battement chaque minute ; sans signal depuis plus de 4 min -> hors ligne.
-const OFFLINE_AFTER_MS = 8 * 60 * 1000; // battement toutes les 3 min : hors ligne après ~2 battements manqués
+const OFFLINE_AFTER_MS = 12 * 60 * 1000; // battement toutes les 5 min : hors ligne après ~2 battements manqués
 
 export default function Tablets({ sites = [] }) {
   const [tablets, setTablets] = useState([]);
