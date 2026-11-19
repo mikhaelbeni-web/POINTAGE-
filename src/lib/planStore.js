@@ -1,5 +1,5 @@
 // ============================================================
-// planStore.js — Firestore : plannings, déclarations de pause, compteurs.
+// planStore.js — Base (Supabase) : plannings, déclarations de pause, compteurs.
 //
 // RÈGLE ABSOLUE : rien ici ne se trouve dans le parcours de pointage.
 // badgePunch (store.js) n'écrit que le pointage ; ce module lit et écrit
@@ -19,46 +19,36 @@
 // Le compteur = somme des lignes pauseLedger : recalculable à tout moment,
 // aucun double comptage possible.
 // ============================================================
-import {
-  collection, doc, getDoc, getDocs, setDoc, query, where, onSnapshot,
-  serverTimestamp, runTransaction, writeBatch,
-} from "firebase/firestore";
-import { db } from "./firebase";
+import { getDoc, queryDocs, setDoc, watchQuery, serverTimestamp, runTransaction, writeBatch, newId, toMs } from "./db";
 import { getSettings, saveSettings, recomputeDayDoc } from "./store";
 import { computePlanDay } from "./planLogic";
 
 export const dayKey = (empId, date) => `${empId}_${date}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
-const rows = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-const ms = (t) => (t?.toMillis ? t.toMillis() : typeof t === "number" ? t : null);
+const ms = (t) => toMs(t);
 
 // ---------- Lecture ----------
-// Pointeuse : UN seul écouteur (jour courant), mis en cache local par Firestore. Au moment
+// Pointeuse : UN seul écouteur (jour courant), gardé en copie locale sur la tablette. Au moment
 // du départ, la décision « planning ou non » est donc locale : aucune lecture réseau
 // dans le parcours de pointage. (Un seul jour de plannings, jamais le calendrier complet.)
 export function watchPlanningsDate(date, cb) {
-  const q = query(collection(db, "plannings"), where("date", "==", date));
-  return onSnapshot(q, (snap) => cb(rows(snap)), () => cb(null));
+  return watchQuery("plannings", [["date", "==", date]], cb, { cacheKey: `plannings_${date}`, onError: () => cb(null) });
 }
 
 /** Plannings d'une plage de dates (écran administration). Filtre par date seulement : index automatique. */
 export function watchPlanningsRange(from, to, cb) {
-  const q = query(collection(db, "plannings"), where("date", ">=", from), where("date", "<=", to));
-  return onSnapshot(q, (snap) => cb(rows(snap)));
+  return watchQuery("plannings", [["date", ">=", from], ["date", "<=", to]], cb);
 }
 
 export async function getLedgerRows(empId) {
-  const snap = await getDocs(query(collection(db, "pauseLedger"), where("employeeId", "==", empId)));
-  return rows(snap).sort((a, b) => a.date.localeCompare(b.date));
+  return (await queryDocs("pauseLedger", [["employeeId", "==", empId]])).sort((a, b) => a.date.localeCompare(b.date));
 }
 export async function getLedgerHistory(ledgerId) {
-  const snap = await getDocs(query(collection(db, "ledgerHistory"), where("ledgerId", "==", ledgerId)));
-  return rows(snap).sort((a, b) => (a.atMs || 0) - (b.atMs || 0));
+  return (await queryDocs("ledgerHistory", [["ledgerId", "==", ledgerId]])).sort((a, b) => (a.atMs || 0) - (b.atMs || 0));
 }
 export async function getPlanningHistory(empId) {
-  const snap = await getDocs(query(collection(db, "planningHistory"), where("employeeId", "==", empId)));
-  return rows(snap).sort((a, b) => (b.atMs || 0) - (a.atMs || 0));
+  return (await queryDocs("planningHistory", [["employeeId", "==", empId]])).sort((a, b) => (b.atMs || 0) - (a.atMs || 0));
 }
 
 // ---------- Écriture d'un planning (modification possible à tout moment, y compris rétroactive) ----------
@@ -70,15 +60,15 @@ export function planningWrite(batch, planning, before, by) {
   const after = { morning: clean(planning.morning), evening: clean(planning.evening) };
   const prev = before ? { morning: clean(before.morning), evening: clean(before.evening) } : null;
   if (JSON.stringify(prev) === JSON.stringify(after)) return null; // rien à changer
-  batch.set(doc(db, "plannings", id), {
+  batch.set("plannings", id, {
     siteId: siteId || null, employeeId, date, ...after, updatedBy: by || null, updatedAt: serverTimestamp(),
   });
-  const histRef = doc(collection(db, "planningHistory"));
-  batch.set(histRef, {
+  const histId = newId();
+  batch.set("planningHistory", histId, {
     planningId: id, siteId: siteId || null, employeeId, date, before: prev, after, by: by || null,
     atMs: Date.now(), at: serverTimestamp(), impact: null,
   });
-  return { id, histId: histRef.id };
+  return { id, histId };
 }
 
 /**
@@ -91,8 +81,8 @@ export async function savePlannings(list, by, onProgress) {
   const changed = [];
   for (let i = 0; i < list.length; i += 150) {
     const chunk = list.slice(i, i + 150);
-    const befores = await Promise.all(chunk.map((p) => getDoc(doc(db, "plannings", dayKey(p.employeeId, p.date)))));
-    const batch = writeBatch(db);
+    const befores = await Promise.all(chunk.map((p) => getDoc("plannings", dayKey(p.employeeId, p.date))));
+    const batch = writeBatch();
     chunk.forEach((p, k) => {
       const b = befores[k].exists() ? befores[k].data() : null;
       const w = planningWrite(batch, p, b, by);
@@ -108,12 +98,12 @@ export async function savePlannings(list, by, onProgress) {
       try {
         // Les heures du jour dépendent du planning quand la coupure est saisie en pause : on les recalcule aussi.
         try {
-          const ds = (await getDocs(query(collection(db, "days"), where("employeeId", "==", c.employeeId), where("date", "==", c.date)))).docs.map((d) => d.data());
-          const emp = ds.some((d) => d.breakOut && d.breakIn && !d.arrival2) ? await getDoc(doc(db, "employees", c.employeeId)) : null;
+          const ds = await queryDocs("days", [["employeeId", "==", c.employeeId], ["date", "==", c.date]]);
+          const emp = ds.some((d) => d.breakOut && d.breakIn && !d.arrival2) ? await getDoc("employees", c.employeeId) : null;
           for (const d of ds) if (emp?.exists() && d.breakOut && d.breakIn && !d.arrival2) await recomputeDayDoc(d.siteId, c.employeeId, c.date, { id: c.employeeId, ...emp.data() });
         } catch (_) { /* repris à la lecture */ }
         const r = await recomputePlanDay(c.employeeId, c.date, { reason: "planning", by });
-        await setDoc(doc(db, "planningHistory", c.histId), { impact: r.impact }, { merge: true });
+        await setDoc("planningHistory", c.histId, { impact: r.impact }, { merge: true });
       } catch (_) { /* la ligne sera reprise par recomputeStale à l'ouverture du tableau de bord */ }
       done++; onProgress && onProgress(done, changed.length);
     }
@@ -123,7 +113,7 @@ export async function savePlannings(list, by, onProgress) {
 }
 
 // ---------- Déclaration de pause ----------
-export const declarationRef = (empId, date) => doc(db, "breakDeclarations", dayKey(empId, date));
+export const declarationRef = (empId, date) => dayKey(empId, date);
 /** siteId = magasin de la tablette où le salarié pointe son départ. */
 export function buildDeclaration({ siteId, empId, date, status, declaredMinutes, expectedMinutes, source = "badge", by = null, note = "" }) {
   return {
@@ -136,9 +126,9 @@ export function buildDeclaration({ siteId, empId, date, status, declaredMinutes,
 
 /** Régularisation par la direction (oubli, panne) : conserve la trace de qui a corrigé et pourquoi. */
 export async function regulariseDeclaration({ empId, date, status, declaredMinutes, by, note }) {
-  const led = (await getDoc(doc(db, "pauseLedger", dayKey(empId, date)))).data();
+  const led = (await getDoc("pauseLedger", dayKey(empId, date))).data();
   const d = buildDeclaration({ siteId: led?.siteId || null, empId, date, status, declaredMinutes, expectedMinutes: led?.expectedBreakMinutes ?? 0, source: "regularisation", by, note });
-  await setDoc(declarationRef(empId, date), d);
+  await setDoc("breakDeclarations", declarationRef(empId, date), d);
   return recomputePlanDay(empId, date, { reason: "régularisation", by });
 }
 
@@ -176,10 +166,10 @@ function mergeDays(list) {
 export async function recomputePlanDay(empId, date, { reason = "calcul", by = null } = {}) {
   if (isOffline()) throw new Error("hors-ligne");
   const settings = await settingsCached();
-  const empSnap = await getDoc(doc(db, "employees", empId));
+  const empSnap = await getDoc("employees", empId);
   const emp = empSnap.exists() ? { id: empId, ...empSnap.data() } : { id: empId };
   const id = dayKey(empId, date);
-  const findDayRefs = async () => (await getDocs(query(collection(db, "days"), where("employeeId", "==", empId), where("date", "==", date)))).docs.map((d) => d.ref);
+  const findDayRefs = async () => (await queryDocs("days", [["employeeId", "==", empId], ["date", "==", date]])).map((d) => ({ path: `days/${d.id}`, id: d.id }));
   // Une transaction ne peut pas faire de requête : les jours sont listés avant, puis relus dedans. Si un pointage
   // crée un jour entre-temps, la liste utilisée serait périmée (même après un nouvel essai de la transaction) :
   // on vérifie donc après coup et on recommence si la liste a changé.
@@ -195,10 +185,10 @@ export async function recomputePlanDay(empId, date, { reason = "calcul", by = nu
 
   async function recomputeOnce(dayRefs) {
   let result;
-  await runTransaction(db, async (tx) => {
+  await runTransaction(async (tx) => {
     const [pl, dc, lg, ...dys] = await Promise.all([
-      tx.get(doc(db, "plannings", id)), tx.get(doc(db, "breakDeclarations", id)), tx.get(doc(db, "pauseLedger", id)),
-      ...dayRefs.map((r) => tx.get(r)),
+      tx.get("plannings", id), tx.get("breakDeclarations", id), tx.get("pauseLedger", id),
+      ...dayRefs.map((r) => tx.get("days", r.id)),
     ]);
     const dayDocs = dys.filter((d) => d.exists()).map((d) => d.data());
     const planning = pl.exists() ? pl.data() : null;
@@ -208,12 +198,12 @@ export async function recomputePlanDay(empId, date, { reason = "calcul", by = nu
     const changed = sig(prev) !== sig(row);
     // Une ligne sans planning ni déclaration n'a pas de raison d'exister.
     if (!row.hasPlanning && !dc.exists()) {
-      if (prev) tx.delete(doc(db, "pauseLedger", id));
+      if (prev) tx.delete("pauseLedger", id);
     } else {
-      tx.set(doc(db, "pauseLedger", id), { ...row, siteId, employeeId: empId, computedAt: serverTimestamp(), computedAtMs: Date.now() });
+      tx.set("pauseLedger", id, { ...row, siteId, employeeId: empId, computedAt: serverTimestamp(), computedAtMs: Date.now() });
     }
     if (changed && (prev || row.hasPlanning || dc.exists())) {
-      tx.set(doc(collection(db, "ledgerHistory")), {
+      tx.set("ledgerHistory", newId(), {
         ledgerId: id, employeeId: empId, siteId, date, reason, by,
         before: prev ? Object.fromEntries(SIG_KEYS.map((k) => [k, prev[k] ?? null])) : null,
         after: Object.fromEntries(SIG_KEYS.map((k) => [k, row[k] ?? null])),
@@ -269,9 +259,9 @@ export function recomputePlanInBackground(empId, date) { schedule(empId, date, 0
  */
 export async function recomputeStale(empIds, date, by) {
   const wanted = new Set(empIds);
-  const byDate = (c) => getDocs(query(collection(db, c), where("date", "==", date))).then(rows);
+  const byDate = (c) => queryDocs(c, [["date", "==", date]]);
   const [days, plans, ledger, decls] = await Promise.all([byDate("days"), byDate("plannings"), byDate("pauseLedger"), byDate("breakDeclarations")]);
-  const upd = (x) => (x ? x.updatedAt?.toMillis?.() ?? x.atMs ?? 0 : 0);
+  const upd = (x) => (x ? ms(x.updatedAt) ?? x.atMs ?? 0 : 0);
   const led = Object.fromEntries(ledger.map((l) => [l.employeeId, l]));
   const ids = new Set([...days, ...plans, ...decls].map((x) => x.employeeId).filter((e) => wanted.has(e)));
   let n = 0;
@@ -288,39 +278,38 @@ export async function recomputeStale(empIds, date, by) {
 /** Recalcule tout depuis les données de référence (plannings, pointages, déclarations). Idempotent. */
 export async function rebuildEmployeeLedger(empId, from, to, by) {
   const [pl, dy, dc] = await Promise.all(["plannings", "days", "breakDeclarations"].map((c) =>
-    getDocs(query(collection(db, c), where("employeeId", "==", empId))).then((s) => s.docs.map((d) => d.data()))));
+    queryDocs(c, [["employeeId", "==", empId]])));
   const dates = new Set([...pl, ...dy, ...dc].map((x) => x.date).filter((d) => d >= from && d <= to));
   for (const date of dates) await recomputePlanDay(empId, date, { reason: "reconstruction", by });
   return dates.size;
 }
 
 // ---------- API utilisée par les écrans (Planning, Tableau de bord) ----------
-// Les écrans reçoivent un objet « api » : la vraie (Firestore, ci-dessous) ou celle de la
+// Les écrans reçoivent un objet « api » : la vraie (base Supabase, ci-dessous) ou celle de la
 // page de démonstration (mémoire, voir demoApi.js). Même interface, mêmes calculs (planLogic).
 // Tout est lu par DATE seulement (index automatique) puis filtré par salarié côté écran.
-const byDate = (c, date) => getDocs(query(collection(db, c), where("date", "==", date))).then(rows);
+const byDate = (c, date) => queryDocs(c, [["date", "==", date]]);
 export const realApi = {
   getSettings,
   async saveSettings(patch) { await saveSettings(patch); invalidatePlanSettings(); },
   watchPlannings: watchPlanningsRange,
   async getPlannings(from, to) {
-    return rows(await getDocs(query(collection(db, "plannings"), where("date", ">=", from), where("date", "<=", to))));
+    return queryDocs("plannings", [["date", ">=", from], ["date", "<=", to]]);
   },
   savePlannings,
   async getDaysRange(from, to) {
-    return rows(await getDocs(query(collection(db, "days"), where("date", ">=", from), where("date", "<=", to))));
+    return queryDocs("days", [["date", ">=", from], ["date", "<=", to]]);
   },
   async getDaySituations(date) {
     const [plans, days, ledger, declarations] = await Promise.all(["plannings", "days", "pauseLedger", "breakDeclarations"].map((c) => byDate(c, date)));
     return { plans, days, ledger, declarations };
   },
-  /** Lignes du compteur par salarié (par lots de 10 : limite de l'opérateur « in »). */
+  /** Lignes du compteur par salarié. */
   async getBalances(empIds) {
     const by = {};
-    for (let i = 0; i < empIds.length; i += 10) {
-      const snap = await getDocs(query(collection(db, "pauseLedger"), where("employeeId", "in", empIds.slice(i, i + 10))));
-      snap.docs.forEach((d) => { const r = d.data(); (by[r.employeeId] = by[r.employeeId] || []).push(r); });
-    }
+    if (!empIds.length) return by;
+    const list = await queryDocs("pauseLedger", [["employeeId", "in", empIds]]);
+    list.forEach(({ id: _id, ...r }) => { (by[r.employeeId] = by[r.employeeId] || []).push(r); });
     return by;
   },
   getLedgerRows,

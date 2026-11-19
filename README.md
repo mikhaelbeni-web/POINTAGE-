@@ -1,6 +1,6 @@
 # Pointage RLB
 
-Badgeuse tablette + suivi des heures, temps réel multi-appareils. Next.js (App Router) + Firestore + Vercel.
+Badgeuse tablette + suivi des heures, temps réel multi-appareils. Next.js (App Router) + Supabase (Postgres) + Vercel.
 
 ## Ce que fait l'app
 
@@ -30,47 +30,41 @@ Données : `plannings`, `planningHistory`, `breakDeclarations`, `pauseLedger`, `
 ### Tester sans toucher aux vraies données
 - Page de démonstration : `/demo` (données fictives en mémoire, aucune écriture).
 - Tests de logique : `npm run test:logic`.
-- Tests de charge sur l'émulateur Firestore : voir `scripts/` (`compare-loadtest.sh`, `loadtest-integration.js`) et `scripts/results/`.
-- Pour brancher l'app sur l'émulateur : `NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`.
+- Tests de charge (ancienne version Firebase, non portés) : voir `scripts/` (`compare-loadtest.sh`, `loadtest-integration.js`) et `scripts/results/`.
 
 ## Déploiement
 
-### 1. Firebase
-1. Crée un projet sur https://console.firebase.google.com
-2. Active **Firestore Database** (mode production).
-3. Ajoute une **application Web**, copie la config.
-4. Déploie les règles : contenu de `firestore.rules` (voir avertissement sécurité dedans).
+Base : **Supabase** (Postgres, région Paris). Mode d'emploi complet (création de la base, variables Vercel, copie depuis l'ancienne base Firebase, bascule, retour arrière) : `supabase/MISE-EN-SERVICE.md`.
 
-### 2. Variables d'environnement
-Copie `.env.local.example` en `.env.local`, remplis avec ta config Firebase.
+En résumé :
+1. Exécuter `supabase/schema.sql` dans le SQL Editor de Supabase.
+2. Variables (Vercel et `.env.local`) : `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+3. `npm install` puis `npm run dev` (http://localhost:3000).
 
-### 3. Local
-```bash
-npm install
-npm run dev      # http://localhost:3000
-```
-Au **premier lancement**, l'app demande de définir le PIN manager.
+Tests : `npm run test:logic` (règles de calcul) ; `TEST_PG_URL=postgres://…/pointage_test npm run test:db` (base complète sur un Postgres local : pointage, recalculs simultanés, hors-ligne, sécurité).
 
-### 4. Vercel
-```bash
-# pousse le repo, importe-le dans Vercel, ajoute les 6 variables
-# NEXT_PUBLIC_FIREBASE_* dans Settings > Environment Variables
-```
+### Comment la base est utilisée
+- Chaque ancienne collection Firestore est une table (`id`, `data` = le document, `rev` = version). Les heures sont stockées en millisecondes.
+- Toutes les écritures passent par la fonction SQL `batch_write` (tout ou rien). L'application ne peut ni écrire directement dans les tables ni supprimer le journal des badges ou les historiques.
+- Recalculs sûrs : on relit, on calcule, on écrit seulement si rien n'a changé entre-temps, sinon on recommence.
+- Hors-ligne : chaque badge part d'abord dans une file sur la tablette (`src/lib/outbox.js`), envoyée dans l'ordre au retour du réseau, sans doublon possible.
+- Temps réel : Supabase Realtime, avec copie locale (salariés, magasins, jours et plannings du jour) pour fonctionner sans réseau.
 
 ## Sécurité — à lire
 
 - Les PIN sont **hachés SHA-256 + sel** avant stockage (`src/lib/pin.js`). Un PIN 4 chiffres reste faible par nature : SHA ne ralentit pas la force brute. Acceptable pour badger ; pour durcir le PIN manager, remplacer `verifyManagerPin` par un appel Cloud Function bcrypt — le reste ne bouge pas.
 - Change les sels (`SALT_EMPLOYEE`, `SALT_MANAGER`) à l'installation.
-- Les règles Firestore sont **ouvertes** (pas de Firebase Auth). Active **App Check** ou passe à Firebase Auth avant toute exposition hors réseau interne.
+- La base est **lisible** par quiconque possède l'adresse de l'app et sa clé publique (comme l'ancienne base Firebase, ouverte). Les écritures, elles, passent uniquement par `batch_write` (tables autorisées, journal des badges non supprimable). Étape suivante possible : enregistrement de chaque tablette (code magasin vérifié côté serveur) et lecture réservée aux tablettes enregistrées.
 
 ## Structure
 
 ```
 src/lib/timeLogic.js   Logique métier pure (calculs, comp/supp, alertes) — testable seule
 src/lib/recap.js       Agrégation hebdo/mensuelle
-src/lib/store.js       Accès Firestore + recalcul des jours
+src/lib/store.js       Accès base + recalcul des jours
+src/lib/db.js          Client Supabase : lectures, écritures groupées, transactions, temps réel
+src/lib/outbox.js      File hors-ligne des badges
 src/lib/pin.js         Hachage PIN
-src/lib/firebase.js    Init Firebase (SITE_ID = "main")
 src/components/        Badgeuse, Dashboard, Employees, DayEditor, Settings, Recap, ui
 src/app/page.js        Orchestration
 ```
