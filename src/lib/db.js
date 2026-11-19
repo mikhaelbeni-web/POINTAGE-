@@ -183,7 +183,10 @@ export async function runTransaction(fn, maxAttempts = 8) {
 // ---------- Écoutes en direct ----------
 const cacheGet = (k) => { try { const v = localStorage.getItem("pg_cache_" + k); return v ? JSON.parse(v) : null; } catch (_) { return null; } };
 const cacheSet = (k, v) => { try { localStorage.setItem("pg_cache_" + k, JSON.stringify(v)); } catch (_) { /* stockage plein : sans gravité */ } };
-const REFRESH_MS = 5 * 60 * 1000;
+// Relecture complète de secours : le temps réel transmet déjà chaque changement, et une
+// relecture a lieu à chaque reconnexion / retour à l'écran. 30 min suffit et limite le
+// volume de données transférées (quota mensuel Supabase).
+const REFRESH_MS = 30 * 60 * 1000;
 
 function matches(doc, filters) {
   return (filters || []).every(([f, o, v]) => {
@@ -250,7 +253,9 @@ export function watchQuery(collection, filters, cb, opts = {}) {
   // Temps réel : on applique chaque changement reçu (pas de relecture complète).
   // Un seul filtre est possible côté Supabase : on prend l'égalité la plus sélective.
   try {
-    const eq = (filters || []).find(([f, o]) => o === "==" && (f === "date" || f === "employeeId"));
+    // Magasin d'abord : une tablette ne reçoit que les changements de SON magasin.
+    const eqs = (filters || []).filter(([, o]) => o === "==");
+    const eq = ["siteId", "date", "employeeId"].map((f) => eqs.find(([g]) => g === f)).find(Boolean);
     const cfg = { event: "*", schema: "public", table, ...(eq ? { filter: `${col(eq[0])}=eq.${eq[2]}` } : {}) };
     channel = supabase().channel(`w_${table}_${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", cfg, (p) => {
