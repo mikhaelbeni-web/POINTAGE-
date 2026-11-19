@@ -1,14 +1,14 @@
 // ============================================================
-// store.js — Accès Firestore + recalcul des jours.
+// store.js — Accès à la base (Supabase) + recalcul des jours.
 // MULTI-MAGASINS : chaque salarié porte son propre siteId.
 // punches = source de vérité brute (audit).
 // days     = cache calculé, ID = {siteId}_{empId}_{date}.
 // ============================================================
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  query, where, onSnapshot, serverTimestamp, Timestamp, runTransaction, writeBatch,
-} from "firebase/firestore";
-import { db } from "./firebase";
+  getDoc, queryDocs, setDoc, deleteDoc, watchQuery, serverTimestamp, runTransaction,
+  writeBatch, newId, toMs, rawBatch,
+} from "./db";
+import { enqueue, configureOutbox, flush as flushOutbox } from "./outbox";
 import { computeDay, computeCadreDay, checkRest, DEFAULT_SETTINGS } from "./timeLogic";
 import { coupureAsBlocks } from "./planLogic";
 
@@ -31,6 +31,8 @@ function prevDateStr(date) {
   const d = new Date(Y, M - 1, D - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+configureOutbox(rawBatch);
+if (typeof window !== "undefined") setTimeout(() => flushOutbox(), 0); // pointages restés en file
 const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,7 +46,7 @@ export async function sendHeartbeat(tabletId, siteId, meta = {}) {
     // TOUJOURS deux documents distincts, même si deux appareils partagent
     // le même tabletId (ex. localStorage synchronisé entre navigateurs).
     const docKey = `${tabletId}__${siteId || "none"}`;
-    await setDoc(doc(db, "tablets", docKey), {
+    await setDoc("tablets", docKey, {
       tabletId, siteId: siteId || null,
       lastSeen: serverTimestamp(),
       lastSeenMs: Date.now(),
@@ -54,21 +56,19 @@ export async function sendHeartbeat(tabletId, siteId, meta = {}) {
 }
 
 export function watchTablets(cb) {
-  return onSnapshot(collection(db, "tablets"), (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  });
+  return watchQuery("tablets", [], cb);
 }
 
 export async function deleteTablet(tabletId) {
-  await deleteDoc(doc(db, "tablets", tabletId));
+  await deleteDoc("tablets", tabletId);
 }
 
 // Matricule auto : plus grand matricule existant + 1 (min 101).
 export async function nextMatricule() {
-  const snap = await getDocs(collection(db, "employees"));
+  const list = await queryDocs("employees");
   let max = 100;
-  snap.docs.forEach((d) => {
-    const m = parseInt(d.data().matricule, 10);
+  list.forEach((d) => {
+    const m = parseInt(d.matricule, 10);
     if (!isNaN(m) && m > max) max = m;
   });
   return String(max + 1);
@@ -78,9 +78,9 @@ export async function nextMatricule() {
 // le matricule badge sur n'importe quelle tablette, quel que soit son magasin
 // de rattachement. Le magasin du pointage sera celui de la tablette.
 export async function findByMatricule(matricule) {
-  const q = query(collection(db, "employees"), where("matricule", "==", String(matricule)));
-  const snap = await getDocs(q);
-  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((e) => e.active !== false);
+  // Colonne matricule = matricule sans espaces autour (même résultat que l'égalité exacte d'avant
+  // pour les matricules bien saisis).
+  const list = (await queryDocs("employees", [["matricule", "==", String(matricule).trim()]])).filter((e) => e.active !== false);
   return list[0] || null;
 }
 
@@ -91,12 +91,11 @@ let _settingsCache = null;
 let _settingsAt = 0;
 export async function getSettings() {
   if (_settingsCache && Date.now() - _settingsAt < 5 * 60 * 1000) return _settingsCache;
-  const ref = doc(db, "settings", SETTINGS_ID);
-  const snap = await getDoc(ref);
+  const snap = await getDoc("settings", SETTINGS_ID);
   let out;
   if (!snap.exists()) {
     out = { ...DEFAULT_SETTINGS };
-    await setDoc(ref, out);
+    await setDoc("settings", SETTINGS_ID, out);
   } else {
     out = { ...DEFAULT_SETTINGS, ...snap.data() };
   }
@@ -104,111 +103,75 @@ export async function getSettings() {
   return out;
 }
 export async function saveSettings(patch) {
-  await setDoc(doc(db, "settings", SETTINGS_ID), patch, { merge: true });
+  await setDoc("settings", SETTINGS_ID, patch, { merge: true });
   _settingsCache = null; // force la relecture après modification
 }
 
 // ---------- Magasins ----------
 export function watchSites(cb) {
-  return onSnapshot(collection(db, "sites"), (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return watchQuery("sites", [], (list) => {
     list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     cb(list);
-  });
+  }, { cacheKey: "sites" });
 }
 export async function saveSite(site) {
-  const id = site.id || doc(collection(db, "sites")).id;
+  const id = site.id || newId();
   const { id: _o, ...data } = site;
-  await setDoc(doc(db, "sites", id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc("sites", id, { ...data, updatedAt: serverTimestamp() }, { merge: true });
   return id;
 }
 export async function deleteSite(id) {
-  await deleteDoc(doc(db, "sites", id));
+  await deleteDoc("sites", id);
 }
 
 // ---------- Managers (PIN unique + périmètre) ----------
 // scope: "all" OU liste d'IDs de magasins.
 export function watchManagers(cb) {
-  return onSnapshot(collection(db, "managers"), (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return watchQuery("managers", [], (list) => {
     list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     cb(list);
-  });
+  }, { cacheKey: "managers" });
 }
 export async function saveManager(mgr) {
-  const id = mgr.id || doc(collection(db, "managers")).id;
+  const id = mgr.id || newId();
   const { id: _o, ...data } = mgr;
-  await setDoc(doc(db, "managers", id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc("managers", id, { ...data, updatedAt: serverTimestamp() }, { merge: true });
   return id;
 }
 export async function deleteManager(id) {
-  await deleteDoc(doc(db, "managers", id));
+  await deleteDoc("managers", id);
 }
 export async function getAllManagers() {
-  const snap = await getDocs(collection(db, "managers"));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return queryDocs("managers");
 }
 
 // ---------- Salariés ----------
 export function watchEmployees(cb) {
-  return onSnapshot(collection(db, "employees"), (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return watchQuery("employees", [], (list) => {
     list.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
     cb(list);
-  });
+  }, { cacheKey: "employees" });
 }
-// Clé de verrou pour un matricule (unicité réseau).
-const matLockId = (mat) => `mat_${String(mat).trim()}`;
 
 /**
- * Enregistre un salarié en RÉSERVANT son matricule de façon atomique.
- * Un doc matricules/{mat_XXX} sert de verrou : la transaction échoue
- * si le matricule est déjà réservé par un AUTRE salarié.
- * Impossible de créer deux salariés avec le même matricule, même simultanément.
+ * Enregistre un salarié. L'unicité du matricule est garantie par la base elle-même
+ * (index unique) : impossible de créer deux salariés avec le même matricule, même
+ * simultanément. En cas de doublon : « Ce matricule est déjà utilisé par un autre salarié. »
  */
 export async function saveEmployee(emp) {
-  const id = emp.id || doc(collection(db, "employees")).id;
+  const id = emp.id || newId();
   const { id: _omit, ...data } = emp;
   const newMat = String(data.matricule || "").trim();
   if (!newMat) throw new Error("Matricule requis");
-
-  // Ancien matricule (si modification) pour libérer l'ancien verrou.
-  let oldMat = null;
-  if (emp.id) {
-    const prev = await getDoc(doc(db, "employees", id));
-    if (prev.exists()) oldMat = String(prev.data().matricule || "").trim();
-  }
-
-  await runTransaction(db, async (tx) => {
-    const lockRef = doc(db, "matricules", matLockId(newMat));
-    const lockSnap = await tx.get(lockRef);
-    // Le verrou existe ET appartient à un autre salarié -> refus.
-    if (lockSnap.exists() && lockSnap.data().employeeId !== id) {
-      throw new Error("Ce matricule est déjà utilisé par un autre salarié.");
-    }
-    // Réserve le nouveau matricule pour ce salarié.
-    tx.set(lockRef, { employeeId: id, matricule: newMat });
-    // Libère l'ancien matricule s'il a changé.
-    if (oldMat && oldMat !== newMat) {
-      tx.delete(doc(db, "matricules", matLockId(oldMat)));
-    }
-    // Écrit le salarié.
-    tx.set(doc(db, "employees", id), { ...data, matricule: newMat, updatedAt: serverTimestamp() }, { merge: true });
-  });
+  await setDoc("employees", id, { ...data, matricule: newMat, updatedAt: serverTimestamp() }, { merge: true });
   return id;
 }
 
 export async function deleteEmployee(id) {
-  // Libère le verrou de matricule en même temps que la suppression.
-  const snap = await getDoc(doc(db, "employees", id));
-  const mat = snap.exists() ? String(snap.data().matricule || "").trim() : null;
-  await deleteDoc(doc(db, "employees", id));
-  if (mat) {
-    try { await deleteDoc(doc(db, "matricules", matLockId(mat))); } catch (_) {}
-  }
+  await deleteDoc("employees", id);
 }
 async function getEmployee(empId) {
-  const s = await getDoc(doc(db, "employees", empId));
+  const s = await getDoc("employees", empId);
   return s.exists() ? { id: s.id, ...s.data() } : null;
 }
 
@@ -219,10 +182,10 @@ export async function addPunch(empId, date, type, source = "badge", editedBy = n
   const emp = await getEmployee(empId);
   if (!emp) throw new Error("Salarié introuvable");
   const siteId = punchSiteId || emp.siteId || "main";
-  const id = doc(collection(db, "punches")).id;
-  await setDoc(doc(db, "punches", id), {
+  const id = newId();
+  await setDoc("punches", id, {
     siteId, employeeId: empId, date, type,
-    at: Timestamp.fromDate(at instanceof Date ? at : new Date(at)),
+    at: toMs(at instanceof Date ? at : new Date(at)),
     source, editedBy, createdAt: serverTimestamp(),
   });
   await recomputeDay(empId, date, false, siteId);
@@ -239,13 +202,14 @@ export async function addPunch(empId, date, type, source = "badge", editedBy = n
 // split = journée coupée : la pause déclarée de chaque bloc est mémorisée dans le jour
 // (breakDecl1 / breakDecl2, minutes) pour être déduite du temps travaillé ; la déclaration du
 // 2e bloc s'ajoute à celle du jour (champ block2) sans écraser celle du 1er bloc.
+//
+// Hors-ligne : l'écriture groupée part d'abord dans la file de la tablette (outbox.js),
+// puis vers la base dès que le réseau est là. La promesse se résout à la confirmation de la base.
 export async function badgePunch(emp, date, type, at, siteId, decl = null, split = false) {
   const sid = siteId || emp.siteId || "main";
-  const when = Timestamp.fromDate(at instanceof Date ? at : new Date(at));
-  const punchRef = doc(collection(db, "punches"));
-  const dayRef = doc(db, "days", dayId(sid, emp.id, date));
-  const batch = writeBatch(db);
-  batch.set(punchRef, {
+  const when = toMs(at instanceof Date ? at : new Date(at));
+  const batch = writeBatch();
+  batch.set("punches", newId(), {
     siteId: sid, employeeId: emp.id, date, type, at: when,
     source: "badge", editedBy: null, createdAt: serverTimestamp(),
   });
@@ -254,7 +218,7 @@ export async function badgePunch(emp, date, type, at, siteId, decl = null, split
     const mins = decl.status === "taken" ? decl.expectedMinutesAtDeclaration : decl.status === "partial" ? decl.declaredMinutes : decl.status === "none" ? 0 : null;
     dayExtra[type === "departure" ? "breakDecl1" : "breakDecl2"] = mins;
   }
-  batch.set(dayRef, {
+  batch.set("days", dayId(sid, emp.id, date), {
     siteId: sid, employeeId: emp.id, date, [type]: when, ...dayExtra,
     source: "badge", updatedAt: serverTimestamp(),
     // Marqueur "à recalculer" : effacé uniquement par un recalcul réussi.
@@ -262,11 +226,11 @@ export async function badgePunch(emp, date, type, at, siteId, decl = null, split
     needsRecompute: true,
   }, { merge: true });
   if (decl) {
-    const declRef = doc(db, "breakDeclarations", `${emp.id}_${date}`); // une déclaration par salarié et par jour
-    if (type === "departure2") batch.set(declRef, { block2: decl }, { merge: true });
-    else batch.set(declRef, decl);
+    const declId = `${emp.id}_${date}`; // une déclaration par salarié et par jour
+    if (type === "departure2") batch.set("breakDeclarations", declId, { block2: decl }, { merge: true });
+    else batch.set("breakDeclarations", declId, decl);
   }
-  await batch.commit();
+  await enqueue(batch.ops);
   // Recalcul en arrière-plan (pas d'attente côté écran), avec nouvelles tentatives.
   recomputeInBackground(sid, emp.id, date, emp);
 }
@@ -290,10 +254,10 @@ export async function setDayTimes(empId, date, times, editedBy) {
   for (const k of ["arrival", "breakOut", "breakIn", "departure", "arrival2", "departure2"]) {
     if (!(k in times)) continue; // anciens appelants : pas de 2e bloc
     const v = times[k];
-    patch[k] = v ? Timestamp.fromDate(hhmmToDate(date, v)) : null;
+    patch[k] = v ? hhmmToDate(date, v).getTime() : null;
   }
   await setDoc(
-    doc(db, "days", dayId(siteId, empId, date)),
+    "days", dayId(siteId, empId, date),
     { siteId, employeeId: empId, date, ...patch, source: "manual", editedBy, needsRecompute: true },
     { merge: true }
   );
@@ -317,8 +281,7 @@ export async function setCadreHalfDay(empId, date, half, value, source = "badge"
   const emp = await getEmployee(empId);
   if (!emp) throw new Error("Salarié introuvable");
   const siteId = punchSiteId || emp.siteId || "main";
-  const ref = doc(db, "days", dayId(siteId, empId, date));
-  await setDoc(ref, {
+  await setDoc("days", dayId(siteId, empId, date), {
     siteId, employeeId: empId, date, category: "cadre",
     [half]: value, source, editedBy,
   }, { merge: true });
@@ -329,10 +292,10 @@ export async function recomputeCadreDay(empId, date, siteId = null) {
   const emp = await getEmployee(empId);
   if (!emp) return;
   const sid = siteId || emp.siteId || "main";
-  const ref = doc(db, "days", dayId(sid, empId, date));
-  const cur = (await getDoc(ref)).data() || {};
+  const ref = dayId(sid, empId, date);
+  const cur = (await getDoc("days", ref)).data() || {};
   const m = computeCadreDay({ morning: cur.morning, afternoon: cur.afternoon }, emp, date);
-  await setDoc(ref, {
+  await setDoc("days", ref, {
     siteId: sid, employeeId: empId, date, category: "cadre",
     morning: m.morning, afternoon: m.afternoon,
     dayFraction: m.dayFraction, status: m.status,
@@ -346,7 +309,7 @@ export async function recomputeCadreDay(empId, date, siteId = null) {
 //    sont écrites que par le badge ou la correction manager. Un pointage
 //    simultané ne peut donc plus être effacé par un recalcul.
 // 2. Transaction : si le jour change entre la lecture et l'écriture (autre
-//    badge, correction), Firestore rejoue le calcul sur la version à jour.
+//    badge, correction), le calcul est rejoué sur la version à jour (db.runTransaction).
 //    Les indicateurs (heures, retard, statut) correspondent toujours aux heures.
 // 3. Chaque salarié a son propre document : aucune attente entre salariés ni
 //    entre magasins.
@@ -357,29 +320,27 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
   const emp = empPreloaded || (await getEmployee(empId));
   if (!emp) return;
   const settings = await getSettings();
-  const ref = doc(db, "days", dayId(siteId, empId, date));
+  const ref = dayId(siteId, empId, date);
 
   // Départ de la veille (repos minimum), tous magasins confondus.
   // En cas d'échec de la requête : repli sur le jour de la veille du même magasin.
   const prevStr = prevDateStr(date);
   let prevDeparture = null;
   try {
-    const prevSnap = await getDocs(query(
-      collection(db, "days"), where("employeeId", "==", empId), where("date", "==", prevStr)
-    ));
-    prevSnap.docs.forEach((d) => {
-      const dep = d.data().departure;
-      if (dep && (!prevDeparture || dep.toMillis() > prevDeparture.toMillis())) prevDeparture = dep;
+    const prevList = await queryDocs("days", [["employeeId", "==", empId], ["date", "==", prevStr]]);
+    prevList.forEach((d) => {
+      const dep = d.departure;
+      if (dep && (!prevDeparture || toMs(dep) > toMs(prevDeparture))) prevDeparture = dep;
     });
   } catch (_) {
-    const p = await getDoc(doc(db, "days", dayId(siteId, empId, prevStr)));
+    const p = await getDoc("days", dayId(siteId, empId, prevStr));
     prevDeparture = p.exists() ? (p.data().departure || null) : null;
   }
 
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
+  await runTransaction(async (tx) => {
+    const snap = await tx.get("days", ref);
     if (!snap.exists()) return;
-    const planSnap = await tx.get(doc(db, "plannings", `${empId}_${date}`));
+    const planSnap = await tx.get("plannings", `${empId}_${date}`);
     const planning = planSnap.exists() ? planSnap.data() : null;
     const cur = snap.data();
     if (cur.category === "cadre") return; // les cadres ont leur propre calcul
@@ -395,7 +356,7 @@ export async function recomputeDayDoc(siteId, empId, date, empPreloaded = null) 
       const r = checkRest(prevDeparture, times.arrival, settings);
       restViolation = r.violation; restMinutes = r.restMinutes;
     }
-    tx.update(ref, {
+    tx.update("days", ref, {
       workedMinutes: m.workedMinutes, breakMinutes: m.breakMinutes,
       spanMinutes: m.spanMinutes, spanViolation: m.spanViolation,
       lateMinutes: m.lateMinutes, status: m.status,
@@ -470,114 +431,29 @@ export function healDirtyDays(list) {
   } catch (_) { /* la réparation ne doit jamais casser l'affichage */ }
 }
 
+// Recalcul d'un jour depuis le tableau de bord / la correction. (L'ancien calcul reconstruit
+// depuis le journal des badges n'était plus utilisé : il passe désormais par le calcul sûr.)
 export async function recomputeDay(empId, date, fromManual = false, punchSiteId = null, empPreloaded = null) {
-  if (fromManual) {
-    const e = empPreloaded || (await getEmployee(empId));
-    if (!e) return;
-    return recomputeDayDoc(punchSiteId || e.siteId || "main", empId, date, e);
-  }
-  // Ancien chemin (reconstruction depuis le journal des badges), conservé tel quel.
-  // N'est plus utilisé par la badgeuse (badgePunch) ni par la correction manager.
-  const emp = empPreloaded || (await getEmployee(empId));
-  if (!emp) return;
-  const settings = await getSettings();
-
-  let times = { arrival: null, breakOut: null, breakIn: null, departure: null };
-  let siteId = punchSiteId || emp.siteId || "main";
-
-  if (fromManual) {
-    // Correction manager : on lit le jour déjà ciblé (siteId fourni).
-    const ref0 = doc(db, "days", dayId(siteId, empId, date));
-    const cur = (await getDoc(ref0)).data() || {};
-    times = {
-      arrival: cur.arrival || null, breakOut: cur.breakOut || null,
-      breakIn: cur.breakIn || null, departure: cur.departure || null,
-    };
-  } else {
-    const q = query(
-      collection(db, "punches"),
-      where("employeeId", "==", empId),
-      where("date", "==", date)
-    );
-    const snap = await getDocs(q);
-    const byType = {};
-    snap.docs.forEach((d) => {
-      const p = d.data();
-      // le magasin du pointage = celui des badges du jour
-      if (p.siteId) siteId = p.siteId;
-      if (!byType[p.type] || p.at.toMillis() > byType[p.type].toMillis()) byType[p.type] = p.at;
-    });
-    times = {
-      arrival: byType.arrival || null, breakOut: byType.breakOut || null,
-      breakIn: byType.breakIn || null, departure: byType.departure || null,
-    };
-  }
-
-  const ref = doc(db, "days", dayId(siteId, empId, date));
-  const m = computeDay(times, emp, settings, date);
-
-  const prev = new Date(date); prev.setDate(prev.getDate() - 1);
-  const prevStr = prev.toISOString().slice(0, 10);
-  const prevSnap = await getDoc(doc(db, "days", dayId(siteId, empId, prevStr)));
-  let restViolation = false, restMinutes = null;
-  if (prevSnap.exists() && prevSnap.data().departure && times.arrival) {
-    const r = checkRest(prevSnap.data().departure, times.arrival, settings);
-    restViolation = r.violation; restMinutes = r.restMinutes;
-  }
-
-  await setDoc(ref, {
-    siteId, employeeId: empId, date,
-    arrival: times.arrival, breakOut: times.breakOut,
-    breakIn: times.breakIn, departure: times.departure,
-    workedMinutes: m.workedMinutes, breakMinutes: m.breakMinutes,
-    spanMinutes: m.spanMinutes, spanViolation: m.spanViolation,
-    lateMinutes: m.lateMinutes, status: m.status,
-    restViolation, restMinutes,
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
+  const e = empPreloaded || (await getEmployee(empId));
+  if (!e) return;
+  return recomputeDayDoc(punchSiteId || e.siteId || "main", empId, date, e);
 }
 
 // ---------- Lecture des jours (plages) — sans index composite ----------
 export async function getDaysRange(empId, startDate, endDate) {
-  const q = query(
-    collection(db, "days"),
-    where("employeeId", "==", empId),
-    where("date", ">=", startDate),
-    where("date", "<=", endDate)
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const list = await queryDocs("days", [["employeeId", "==", empId], ["date", ">=", startDate], ["date", "<=", endDate]]);
+  return list.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// _pending = écriture locale pas encore confirmée par le serveur (sert à la réparation).
-const mapDays = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites }));
-
+// _pending = pointage encore dans la file de la tablette (sert à la réparation).
 export function watchDay(date, cb) {
-  const q = query(collection(db, "days"), where("date", "==", date));
-  return onSnapshot(q, (snap) => cb(mapDays(snap)));
+  return watchQuery("days", [["date", "==", date]], cb);
 }
 
-// Badgeuse : uniquement les jours du magasin de la tablette (divise les lectures
-// par le nombre de magasins). Si Firestore refuse la requête (index), repli
-// automatique sur l'écoute de tous les jours de la date, filtrée côté tablette :
-// même résultat, seulement plus de lectures.
+// Badgeuse : uniquement les jours du magasin de la tablette. Copie locale gardée :
+// une tablette rechargée sans réseau affiche quand même l'état des pointages du jour.
 export function watchDaySite(date, siteId, cb) {
-  let unsub = () => {};
-  let stopped = false;
-  const fallback = () => {
-    if (stopped) return;
-    const q = query(collection(db, "days"), where("date", "==", date));
-    unsub = onSnapshot(q, (snap) => cb(mapDays(snap).filter((d) => d.siteId === siteId)));
-  };
-  const q = query(collection(db, "days"), where("date", "==", date), where("siteId", "==", siteId));
-  unsub = onSnapshot(q, (snap) => cb(mapDays(snap)), (err) => {
-    console.warn("[pointage] écoute par magasin refusée, repli :", err && err.code);
-    try { unsub(); } catch (_) {}
-    fallback();
-  });
-  return () => { stopped = true; try { unsub(); } catch (_) {} };
+  return watchQuery("days", [["date", "==", date], ["siteId", "==", siteId]], cb, { cacheKey: `days_${siteId}_${date}` });
 }
 
 // Récap : relit les jours et recalcule d'abord ceux restés "à recalculer",
@@ -598,20 +474,18 @@ export async function getDaysRangeHealed(emp, startDate, endDate) {
 // ---------- Congés ----------
 export async function addLeave(empId, type, startDate, endDate, note = "") {
   const emp = await getEmployee(empId);
-  const id = doc(collection(db, "leaves")).id;
-  await setDoc(doc(db, "leaves", id), {
+  const id = newId();
+  await setDoc("leaves", id, {
     siteId: emp?.siteId || "main", employeeId: empId, type, startDate, endDate, note,
     createdAt: serverTimestamp(),
   });
   return id;
 }
 export async function getLeaves(empId, startDate, endDate) {
-  const q = query(collection(db, "leaves"), where("employeeId", "==", empId));
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
+  const list = await queryDocs("leaves", [["employeeId", "==", empId]]);
+  return list
     .filter((l) => !(l.endDate < startDate || l.startDate > endDate));
 }
 export async function deleteLeave(id) {
-  await deleteDoc(doc(db, "leaves", id));
+  await deleteDoc("leaves", id);
 }
