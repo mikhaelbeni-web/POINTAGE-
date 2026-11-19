@@ -15,6 +15,8 @@ Settings > Environment Variables, ajouter pour **Preview** d'abord (pas Producti
 Puis relancer le déploiement de la PR (Deployments > … > Redeploy). Le lien « Preview » de la PR utilise alors Supabase, la production reste sur Firebase.
 
 ## 3. Copie d'essai des données
+Si tu as fait des essais sur le lien Preview, vide d'abord la base : SQL Editor > coller `supabase/reset.sql` > Run (sinon la vérification signale les documents en trop).
+
 Sur ton PC, dans le dossier du projet, sur la branche de la PR :
 ```
 git fetch origin
